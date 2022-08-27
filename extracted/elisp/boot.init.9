@@ -1,0 +1,85 @@
+  -*-Lisp-*-
+ "IPL" for Elisp using the fast loader
+ first a couple of essentials
+(PROGN
+    (SETQ %PRINFNTOP (QUOTE PRIN1))
+    (PUTPROP (QUOTE /') (QUOTE (LAMBDA () (LIST (QUOTE QUOTE) (READ))))
+             (QUOTE READMACRO))
+    "Quote quoth")
+
+ then read in the loader
+
+(PROGN
+    (ALIAS '%FLAP-ENTRY
+       '(FEXPR LAMBDA (L)
+            (%SET-FUNCTION-ENTRY (CAR L) (*PLUS %CODE-ORG (CAR (CDR L)))
+		      (CAR (CDR (CDR L)))
+		      (CAR (CDR (CDR (CDR L)))))
+            (CAR L)))
+
+[ALIAS 'DF '(FEXPR LAMBDA (L)
+	 [ALIAS (CAR L) (CONS 'FEXPR (CONS 'LAMBDA (CDR L]
+         (CAR L)]
+
+[DF DE (L) [ALIAS (CAR L) (CONS 'EXPR (CONS 'LAMBDA (CDR L] (CAR L)]
+
+(DE TEMP-FLAP (FILE)
+ (PROG (%CODE-ORG NCONSTS NWORDS ORIGIN X Y Z CORG VORG FORG)
+  (WITHIN T (OPENF FILE '(OLD IN))
+   (PROG NIL
+       (OR (EQ (READ) 'SIZE:) (ERROR))
+       (SETQ NCONSTS (READ))
+       (SETQ NWORDS (READ))
+       (SETQ CORG (SETQ ORIGIN (%ALLOCATE-BPS NCONSTS NWORDS)))
+       (OR (EQ (READ) 'CONSTANTS:) (ERROR))
+       (SETQ X (READ))
+ LOOP1 (%DEPOSIT-OBJECT-POINTER ORIGIN (READ))
+       (SETQ ORIGIN (ADD1 ORIGIN))
+       (OR (EQ 0 (SETQ X (SUB1 X))) (GO LOOP1))
+       (OR (EQ (READ) 'VARIABLES:) (ERROR))
+       (SETQ VORG ORIGIN)
+       (SETQ X (READ))
+ LOOP2 (%DEPOSIT-VALUE-REFERENCE ORIGIN (READ))
+       (SETQ ORIGIN (ADD1 ORIGIN))
+       (OR (EQ 0 (SETQ X (SUB1 X))) (GO LOOP2))
+       (OR (EQ (READ) 'FUNCTIONS:) (ERROR))
+       (SETQ FORG ORIGIN)
+       (SETQ X (READ))
+ LOOP3 (%DEPOSIT-FUNCTION-LINKAGE ORIGIN (READ))
+       (SETQ ORIGIN (ADD1 ORIGIN))
+       (OR (EQ 0 (SETQ X (SUB1 X))) (GO LOOP3))
+       (OR (EQ (READ) 'BINARY:) (ERROR))
+       (SETQ Y (CURPOS (CURRENTIN)))))
+ (WITHIN T (OPENF FILE '(OLD IN 36))
+	 (SETQ Y (%BFLAP (*QUO (*PLUS 4 Y) 5) CORG VORG FORG
+			 (SETQ %CODE-ORG (ADD1 ORIGIN)))))
+ (WITHIN T (OPENF FILE '(OLD IN))
+	(SETPOS (CURRENTIN) (*TIMES Y 5))
+	(PROG NIL LOOP (EVAL (READ)) (GO LOOP)))
+ (RETURN FILE)))
+"Temporary FLAP defined")
+
+ FLAP uses a few fns undefined in a bare image:
+(PROGN (ALIAS 'GT '*GREAT) (ALIAS '// '*QUO) (ALIAS '+I 'ADD1)
+       (ALIAS '+ '*PLUS) (ALIAS '-I 'SUB1) (ALIAS '* '*TIMES)
+       "Aliai done")
+
+(TEMP-FLAP "Flap.flap")  Can't use the real flap until we have %READIN
+(TEMP-FLAP "Boot.flap") 
+(FLAP "LISP.FLAP")
+(FLAP "PP.FLAP")
+(FLAP "EDIT.FLAP")
+(FLAP "BREAK.FLAP")
+(FLAP "ERRORX.FLAP")
+(FLAP "ARRAY.FLAP")
+(FLAP "HELPER.FLAP")
+(FLAP "CL.FLAP")
+
+(PROGN    Now get us in the final context
+(SETQ *RAISE T)
+(SETQ ALLVALS NIL)
+(SETQ ALLFNS NIL)
+(SETQ LASTWORD NIL)
+(SETQ SAVE T)
+(SETQ FIXFN '*EDIT)
+"Final inits done")

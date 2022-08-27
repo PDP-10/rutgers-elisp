@@ -1,0 +1,60 @@
+***** CHANGE #1; page 1, line 1; page 1, line 1
+ ---------------------------------
+
+***** CHANGE #2; page 1, line 26; page 1, line 26
+RUTLISP.MSS, as appropriate, in order for the contents stuff to work.
+There are INCLUDE statements for both RUTLISP.CONT and ELISP.CONT.
+Please comment out the wrong ones.
+
+}
+@define(elisp)
+@define(rutlisp,invisible)
+ ---------------------------------
+RUTLISP.MSS, as appropriate, in order for the contents stuff to work.
+There are INCLUDE statements for both RUTLISP.CONT and ELISP.CONT.
+Please comment out the wrong ones.
+
+}
+@define(elisp,invisible)
+@define(rutlisp)
+
+***** CHANGE #3; page 1, line 75; page 1, line 75
+by Charles Hedrick or Rutgers University.
+
+Note:  The following are trademarks of the Digital Equipment
+Corporation:  DECSYSTEM-20, Tops-20, Tops-10, PDP-10
+
+@include(elisp.cont)
+@include(elisp.tabcont)
+ ---------------------------------
+by Charles Hedrick or Rutgers University.
+
+Note:  The following are trademarks of the Digital Equipment
+Corporation:  DECSYSTEM-20, Tops-20, Tops-10, PDP-10
+
+@comment{
+
+@include(elisp.cont)
+@include(elisp.tabcont)
+
+       }
+
+***** CHANGE #4; page 1, line 97; page 1, line 93
+
+being a special edition of the Elisp manual
+with all the Elisp left out
+@end(center)
+
+@comment{
+@include(rutlisp.cont)
+@include(rutlisp.tabcont)
+        }
+ ---------------------------------
+
+being a special edition of the Elisp manual
+with all the Elisp left out
+@end(center)
+
+@include(rutlisp.cont)
+@include(rutlisp.tabcont)
+

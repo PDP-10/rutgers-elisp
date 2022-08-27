@@ -1,0 +1,660 @@
+18-Oct-82
+
+PACK, PACKC, PACK*, STLENGTH, STNTH, MKSTRING, MKATOM, RPLSTRING
+Also bug fix to compiler - stores being removed because CONDTAIL
+	not properly set.
+
+16-Oct-82
+
+put %SLASH in a couple of more places
+LASTC - last char read on a channel
+infix macros
+UNWIND-PROTECT
+reimplemented WITHIN and WITHOUT using UNWIND-PROTECT
+fixed reading files with SOS line numbers
+SETV - set a variable in binding context
+
+16-oct-82 [JoSH]
+
+(a) splice-macros don't clobber atoms and ... . foo) lists.
+Now you can write "." as a splice macro. (You'll want to MODCHR it to
+be a digit to (i) get rid of its old definition and (ii) still allow
+it in numbers.) (chgd rdnum to look for "." instead of %per type char)
+
+(b) %SLASH contains the char (as a number, default 57="/") to be used
+for slashification on output.  If set or bound to anything besides an
+inum from 1 to 127, wierdness will result.
+
+14-Oct-82 [JoSH]
+
+Add hash tables.  Code from MHASHT to SXHASH, plus atoms.
+Add EQL.
+
+4-Oct-82 [later that day]
+
+Fix CNVB2L.  It was failing on things that were exactly 70 bits long.
+Fix PP so that PP-FORMAT gets the current value of LINELENGTH.
+	(It is dangerous to make it depend on whatever happens to be
+	lying around in %%LL.)
+Initialize to %%LL to 72, not to whatever the terminal width happens
+	to be for the user who generates ELISP.
+
+4-Oct-82
+
+Cleanups of numerical code:
+  arith package will return d.p. real only if you supply one, else s.p.
+  fixed FIX
+  added ROUND, FLONUM, DOUBLE, for type conversion
+  replaced MEMBEQL with MEMBERT
+
+3-Oct-82
+
+Fix CREATE-HELP-INDEX to handle EOF a bit more gracefully.
+Fix array and vector code, in kernel and ARRAY.LSP, for new arith routines.
+Fix EARITH.MAC for new arith routines.
+Make compiler put name of current function in all error messages.  (It
+	was doing that fairly well before, actually.)
+Fix compiler for calls to ERRSET, WITHIN, etc.  The code was of the form
+	call errset
+	jrst after body
+	body
+	..continue here after exit from ERRSET
+     The compiler saw the JRST after the call to ERRSET and assumed
+	that the body was dead code!
+Fix SAVEF for structures: (1) forgot to put ST: into PPCOMS. (2) make
+	sure structure definitions are saved before values, so that
+	they are read back in before any values that use #S syntax.
+Added ? and H to top-level, stepper, and break package.  Not editor,
+	since I don't know it well enough.
+Made `(a b . c) work
+removed Lisp version of COPY, i.e. (SUBST 0 0 X), since that resulted in
+	turning 0.0 into 0.  There was already a correct version in
+	Midas, which this bogus one was replacing.  (This bug seems to
+	have gone back to Lisp 1.6.)
+fixed EDIT4F1 and EDITBF1 so that (F ABC@) would find (A B . ABCDEF).
+changed RETFROM to do ADD1 to the stack position before STKSRCH.  STKSRCH
+	begins by doing SUB1 on it, which is no appropriate for RETFROM.
+	The difference only shows up in compiled code.  The old version
+	was unable to find the lowest-level EVAL blip.  [Note that this
+	bug was actually reported in R/UCI Lisp, not Elisp.  My tests 
+	actually work in Elisp with both the old and new versions of
+	RETFROM.]
+fixed BREAK and TRACE so if you don't have to supply an argument list
+	for compiled functions.  If you respond T (or any atom), it
+	will make up a list for you.
+added help to the stepper, if you type ? or H
+fixed STCONCAT to always create a new string, even if given only one
+	arg.  This is so (STCONCAT 'ABC) returns "ABC", not ABC.  It
+	also makes for more consistency.
+
+
+15-Aug-82, second edit
+
+Changed the code for SUBSET slightly.  Always generate a Gensym.  Previous
+	attempt to use existing globals could fail if somebody changed
+	the value of the global inside the loop.
+
+15-Aug-82
+
+MAKE-FOO, where FOO is a structure, did not accept field specifiers.
+	Apparently this feature never worked at all.
+The change to MAPxxx in the compiler made on 3-Aug broke SUBSET.
+	Also, destructive operations on the list would still result
+	in different results in the interpreter and compiler for
+	SUBSET.
+
+13-Aug-82
+
+Two problems with RETURN's:
+  in interpreter, we didn't detect a RETURN when it wasn't inside a PROG.
+	We do now.
+  in compiler, we allowed RETURN not inside a PROG to return to the
+	current function.  That's nice, but it isn't R/UCI Lisp, and so
+	it meant that the compiler didn't detect things that ended
+	up causing trouble in the interpreter.  Removed this feature.
+
+6-Aug-82
+
+A couple of problems with LEXPR's:  trace and untrace didn't work.  Bad
+job of conversion from old format function defn's to new ones.  The most
+interesting bug was that we were doing ALIAS and then using RPLACA to change
+the argument list.  Also, nested calls to LEXPR's didn't work because
+LXVARS was being bound before the args were evaluated.
+
+3-Aug-82
+
+Make MAPxxx in compiler do CDR before the body of the loop, for compatibility
+with interpreter in case somebody does destructive operations on the list
+being CDR'ed.
+
+27-Jul-82
+
+GO was not evaluating atoms that failed to be tags, in the interpreter.
+
+17-Jul-82
+
+fixed problem with FILES? - basically rewrote a lot of the user interface
+for it.
+
+20-May-82
+
+Fix ILLMEM so it can diagnose the case where PUSH FREE, is at the end
+of free space.  It turns out this is XXX,,777777 instead of XXX+1,,0 as
+one would have thought.
+
+Fix GC so that LASTL is never allowed to get beyond the end of the
+new space.
+
+9-May-82
+
+Fix HELP for the various kinds of DO.
+
+8-May-82
+
+Fixed two compiler bugs, in COMPLR.LSP:
+
+The constants optimizer (DCONST) was confusing 8 and 8.0, because it
+used EQUAL.  Have defined CEQP and CMEMBER, which require that numbers
+be of the same type in order to match.
+
+ERRSET and WITHIN/WITHOUT were using &CLRREGS to clear the contents
+of the register database.  The name &CLRREGS turns out to be misleading.
+What it actually does is something quite different.  Have added
+&CLEARREGS to do what I wanted, and tried to find all the places where
+it should be used.
+
+1-May-82 to 7-May-82
+
+Redid calling function calling and arithmetic functions to speed things
+up.  Probably arithmetic will require one more pass.  In BOOT.MID and
+COMPLR.LSP.
+
+10:10am  Tuesday, 27 April 1982
+
+Fixed exponents of real numbers to always print *nopoint=t.  READ
+expects integer there.
+
+20 April 1982
+
+Set up the compiler to know about WHILE and UNTIL.  Put entries into
+CMACS for them, updated with UPMACS.  Ron Fischer.
+
+8-Apr-82
+
+Fix to bug in # readmacro, problem was not allowing NIL to be value of
+structure field.  Fixed by testing if there is another cons cell after
+one with field name in it, rather than the buggy way of CDRing and
+testing if the value was NIL.  "Uncleanedup" missing parens in
+prettyprinter, which turned out to be uses of square paren that were
+being misrecognized by EMACS lisp mode, argh.  Ron Fischer.
+
+3-Apr-82
+
+Compiler code generation problem that was causing labels to get lost.
+See comments at &FIXCHN for details.
+
+Compiler fixed for SOME.  It was returning the value of the first
+list rather than the last.
+
+12:19am  Tuesday, 30 March 1982
+
+Extensive changes to CL.LSP and PP.LSP.  "#" now handles definition of
+structures.  WHILE, UNTIL macros added.  SAFE-ALIAS added.
+STRUCTURE-LENGTH property added.  WHILE, UNTIL macros added.
+STRUCTUREP fixed to handle no field structures and test
+STRUCTURE-LENGTH property.  PP and SPRINT recognize structures through
+PRINA and %SPRINTV.  PP-VSEG lost %BR arguement (print in brackets?),
+added %F fields arg.  PRINA recognizes structures.  Cleaned up some
+missing parens in pretty printer.  Documentation for structures
+expanded, pretty printer doc fixed a little.  Ron Fischer
+
+10:06pm  Tuesday, 9 March 1982
+
+Fixed "#" and "," to be syntactically equal to "_".  This makes them
+not be delimiters.  Ron Fischer.
+
+23-Feb-82
+
+Fix things so AT%DSP word in an atom is never within first 20 words
+	of a section, or the JSP W3,@.+1 will use the AC's.
+put BACK-QUOTE into CMACS.
+(FUNCTION (....)) should be illegal unless the thing is an atom or
+	a LAMBDA form.
+
+7-Feb-82
+
+Removed funny # stuff except #( .. )
+
+FOO-P no longer blows up when given non-vectors.
+
+Compiler blew up when given DS with one or fewer fields.
+
+XXX and STORE-XXX verify that the object is a structure of the
+right type in interpreted code.
+
+Added STRUCTUREP and CREATE-STRUCTURE.
+
+Redid the STORE implementation to allow STORE-XXX.  The compiler must
+now know what kind of thing it is dealing with.  Since it must see
+all DS's, it checks to see whether there is a STORE-XXX, and if not
+assumes it is an array.
+
+6-Feb-82
+
+I have a rough copy of a new version of Elisp.  It probably comes
+close to working, but I am not announcing it for public use quite
+yet.  It will have a simplifed version of the Common Lisp DEFSTRUCT
+(called DS, for compatibility with DF, DV, etc.)  It is implemented
+using vectors.  Most of the time went into integrating it into the
+system:
+  - all printout routines, including PP, now print vectors as
+	#(1 2 3 ...).  I was unable to come up with a syntax that
+	wouldn't mess somebody up, so I chose the Common Lisp
+	syntax.  (I have also implemented a few other of the #
+	things from CL.)
+  - # is now a read macro so you can read this stuff back in.
+  - There are synonyms for all the documented functions that had
+	# in their names.  The old ones will still work, but you
+	you will have to use /#, or turn off the read macro.  As
+	far as I know, the new features are completely upwards
+	compatible if you turn off #.  Here are the synonyms:
+	   APPLY# - none needed - APPLY does the same
+	   ASSOC# - ASSOC-EQUAL
+	   ## - $$
+	   If you refer to #%INDENT, you will have to use /#%INDENT
+  - The compiler handles structures transparently, as far as I
+	can see.
+  - There is now a ST: command to PP to print out structures
+	(parallel to F: V: etc.)
+  - PP-STRUCT is used to print them in the prettyprinter.
+  - There is now an ALLSTRS, equivalent to ALLFNS and ALLVALS, which
+	is set by DS and used by DSKOUT
+  - LOADF and SAVEF know about structure declarations.
+  - GETVECTOR and SETVECTOR compile in line if the index is constant.
+
+Also (GCLEFT) and GCTRIGGER.
+
+
+1-Feb-82
+
+Fix table entry in %BFLAP.  SETBAR and support for 2-arg FSUBRS
+were reversed.
+
+29-Jan-82
+
+Made the compiler know about all of the specials documented in the
+manual.  Made (COMPL ...) obey *RAISEDSK and *NOPOINTDSK.  Make
+*NOPOINTDSK work in interpreter (SPECIAL had been missing).
+Document *NOPOINTDSK.
+
+13-Jan-82
+
+Fixed code in DSKOPN and SIZEFI.  The symptoms were that byte sizes
+other than 36 didn't work and append got you to the wrong place.
+
+11-Jan-82
+
+Continued checkout and bug fixes for new disk code.  It is probably now
+solid enough for users to start using.  
+
+Changed single stepper so you don't see the boiler-plate supplied by
+macro expansions.  You see only the original unexpanded code and the
+pieces supplied by the user, not the PROG's etc. generated by the
+expansion. 
+
+Changed single stepper to use %BKPRINT to print the code.  Previously
+I was using PRINLEV.  It turns out that people had trouble figuring
+out where they were, so I decided they need the whole form.  %BKPRINT
+has the following advantages:
+ - because it doesn't pretty-print, it uses as little space as possible.
+	This is an advantage because you want to keep as much context
+	as possible on the screen.
+ - it understands MACROEXPANSION, QUOTE, and comments.
+I consider it a reasonable compromise between PRINT and SPRINT. If it
+doesn't work, then I will have to go to using SPRINT (and do something
+about MACROEXPANSION).
+
+10-Jan-82
+
+Redid I/O to have device-dependent code.  Disk is done with PMAP.
+
+9-Jan-82
+
+^Z was not implemented for LINEREAD.  Added READCONTEXT, which allowed
+it to be implemented.  Made it be compiled in line.
+
+Major work on compiler to produce faster code.  The following things
+are now compiled inline all the time:  CAR, CDR [sometimes they were
+not done in line], NOT, NULL, RPLACA, RPLACD, CONSP.  The following
+things are compiled inline for tests:  ATOM, LITATOM.  Also made
+calls to the shortest functions use INTERNAL protocol, to bypass the
+atom header:  ATOM, LITATOM, CONS, XCONS, NCONS.  Defined a few
+functions as ONEREG or TWOREG.
+
+The result is a noticable speedup in many cases.
+
+6-Jan-82
+
+Fixed problem in compiler wherein (COND ((NULL FOO)) (...  compiled
+the (NULL FOO) for sideeffects only, i.e. the T was never produced.
+
+24-Dec-81
+
+Implemented REREADCH and EDITCH (^Z and ^F).  ^F calls FIXFN to do
+the editing.  This is initially *EDIT, which means it uses EMACS.
+
+Fixed the compiler and FLAP so that function definitions take effect
+at the right time, i.e. they are put in place of the DE in the text
+part of the file.  This makes oddball things like (DE FOO...)
+(ALIAS 'BAR 'FOO) (DE FOO...) work.
+
+Fixed bug in documentation for MODCHR.
+
+18-Dec-81
+
+ELAP now has the form (ELAP ftnname forms...).  This is to allow
+GETDEF and others to figure out what is going on.
+
+%SPRINT fixed to declare %%LP and %%RP as locals.  It changes
+the values of these variables.  As far as I can see, its changed
+values are used only internally.  If we don't make them locals,
+then the next PP-FORMAT sometimes uses [ where it should use (.
+
+Define MACROEXPANSION as a CMACRO in CMACS.LSP.  I am not sure
+quite how the XMACRO property of an atom gets expanded to a
+MACROEXPANSION, but it did happen once.
+
+13-Dec-81
+
+Fix GETSYM to define xSUBR's in section 1.
+
+Restore DSKIN, DSKOUT.  Use LOADF, SAVEF for automatic version.
+Add FILES? to see what files need saving.  Variables ALLFILES,
+ALLSAVE to keep track of things.  Also make kludgery in DSKIN
+use property, so user can add his own types.  This is not yet
+documented, as data structures may not be frozen yet.  Replace
+EMACS interface with Roy's super-generalized one.
+
+7-Dec-81
+
+Fix DSKIN, DSKOUT to save everything on FOOFNS.  Use prettyprint
+commands F: and V: for ftns and values, so the following will
+work:
+  (de foo ...)
+  {;; here we explain about the variable foo}
+  (dv foo ...)
+previously only one FOO would go into FOOFNS, and the comment would
+then come out in the wrong place.
+
+22-Nov-81, second edit
+
+Made the compiler compile APPEND, BOOLE, and NCONC as nested calls 
+to *APPEND, *BOOLE, and *NCONC, since Josh figures that is going to be
+more efficient.
+
+Fix *LINK and *LINKE in the FLAP section of the compiler so they
+load N for unknown functions.  FLAP was based on an out of date copy
+of ELAP from which this was missing.
+
+Inserted U. of Texas help system.
+
+22-Nov-81
+
+Made APPEND, BOOLE, and NCONC Lexpr's, as in R/UCI Lisp.  (This is so
+APPLY will work.)  Other differences in function types seem not to
+matter.  The only ones I had questions about were LIST, which is LEXPR
+in Elisp and FEXPR in R/UCI lisp, and the MAPxxx functions, which are
+FEXPR's in Elisp and LEXPR's in R/UCI Lisp.  The difference should only
+matter if you try to APPLY them. I can't see that happening with MAPxxx,
+and having LIST be an LEXPR seems more useful.
+
+Fixed the interpreter and compiler for MAPxxx, SOME, EVERY, and SUBSET.
+The semantics used for the function applications, in case the functions
+were not EXPR's, were random in R/UCI Lisp.  I have given them
+consistent "EVAL" semantics.  That is, it is as if these functions were
+implemented as loops with dummy local variables that were bound to the
+list tails or CAR's.  The effect is that MACRO's work the right way, and
+that FEXPR's see as their argument a list of dummy variables.  In
+complex code, EVAL is actually called.  APPLY was used for SOME and
+EVERY in R/UCI Lisp.  Thus these functions did not work at all for
+non-EXPR's.  Similarly, MAPxxx did not work for MACRO's, e.g. (MAPCAR
+'PLUS '(1 2 3) '(4 5 6)).  A bit of thought will show you that APPLY
+does not have quite the right semantics in some cases.  I think this
+implementation does about as well as can be done.
+
+21-Nov-81
+
+GETDEF failed with functions in DEFPROP format.  %FOOFNS was not
+initialized for %XDEFPROP.  Add it to the PROG list in GETDEF.
+The symptom was .UNBOUND undefined when doing GETDEF.
+
+(EQUAL .5 1) was getting illegal UUO.  Forgot an ADJSP P,-1 in EQP.
+Interestingly, this first showed up when the compiler blew up with
+Illegal UUO.
+
+*RAISEDSK was not working in DSKIN or GETDEF.  The code was fine.  But
+had forgotten to declare *RAISE special, so a local copy was being
+changed.
+
+Problems with subfunctions generated by (FUNCTION ...)  Turns out the
+compiler was putting out (*ENTRY FOO EXPR 1) instead of (*ENTRY FOO SUBR
+1), thus resulting in (EXPR 123455 1) instead of (SUBR 123455 1) as the
+definition.  Obviously the former was meaningless.  The usual result
+was ? ADR#1234557 - undefined function.
+
+(MAPCAR (FUNCTION CADR) X) wouldn't work.  CADR is a compiler macro. Had
+to reorganize compilation of MAPxxx to allow macros, FEXPR's, etc. to
+work.  I am now enforcing the difference between FUNCTION and QUOTE.
+Previously this wasn't done consistently, and there were cases where bad
+code could be generated.  FUNCTION will now cause in-line code, whereas
+QUOTE will cause the argument to be passed to APPLY (which is what would
+happen if you actually called MAPCAR as a function).  Thus (MAPCAR 'CADR
+X) will get the real CADR instead of the compiler's inline expansion.
+Not sure why anyone would want any of this, but this is what the
+documentation claims will happen.  The symptoms here could have been
+a variety of odd code from MAPxxx, as well as outright refusal to
+compile some functions.
+
+16-Nov-81
+
+Add *ALLSPECIAL to compiler, to make all user variables be special.
+Currently off by default.  Will turn it on by default after we
+verify that it works, and if it doesn't hurt performance much.
+
+15-Nov-81
+
+Added LOADREL, GETSYM, *GETSYM, and code to produce ELISP.REL in BOOT.
+
+14-Nov-81
+
+FLAP format in compiler.  Involved changes to COMPLR, replacing LAP with
+FLAP, reorganization of BOOT, and recompilation of all modules.
+
+Made DSKIN create FOOFNS instead of DSKOUT.  Includes args to DE, DF,
+DM, DV, and DEFPROP.  Also comments at top level.  Made DE, DF, DM not
+set ALLFNS within DSKIN.  (According to documentation, weren't supposed
+to.)  Changes to BOOT, LISP, PP.
+
+Add ALLOUT, like DSKOUT, but always uses ALLFNS and ALLVALS.
+
+EDIT sets ALLFNS.
+
+5-Nov-81
+
+Do UNMACEXPAND in EDIT
+
+1-Nov-81
+
+Make compiler print a list of all unknown functions called during
+compilation.
+
+Allow (COMPL list-of-files)
+
+Check for calls to NIL and things that are not LITATOM's.
+
+30-Oct-81
+
+SETPOS was garbaging AC's due to typo.  Resulted in Illegal UUO.
+Fixed typo.  I conjecture this was the cause of the Illegal UUO's,
+etc., observed at UTexas.
+
+(ERROR '(A B)) was blowing up, due to change in implementation of
+MAPC, which had been called internally from the error printer.
+The call to MAPC replaced by expansion inline.
+
+SSTEP was not turning off and on right.  When you exited from
+SSTEP, were still in step mode.  Fixed that by saving and restoring
+setting of step flag around calls to SSTEP.  If called BREAK
+from stepper, no way to step during execution of expression by
+OK, GO, EVAL, etc.  Added a SSTEP command to BREAK1 to step the
+break expression.  So you can do SSTEP, then OK, if that is what
+you want to happen.
+
+.4 was resulting in Illegal UUO.  Incorrect calling sequence for an
+internal function inside READ.  (The sequence changed since the code
+was written.)
+
+24-Oct-81
+
+Made *RAISE and *RAISEDSK SPECIAL in BOOT, since they weren't
+working in the compiled version of the system.
+
+Set things up so that a PDL overflow can still call the debugger.
+This requires us to set an artificial limit to the stack.  When
+a PDL overflow occurs, we then temporarily relax this limit, to
+give stack space to the debugger.  The limit is turned back on
+in the top level of READ-EVAL-PRINT.
+
+8-Oct-81
+
+REMOB was blowing the stack if the object REMOB'ed was not on
+the OBLIST.
+
+Race condition in EXPLODE:  If a GC occured on one particular
+CONS, the data word in DUMCHN might be scanned by the GC, but
+hadn't yet been set to anything in particular.
+
+6-Oct-81
+
+SAVEIMAGE was not saving the stacks.  This is because when you
+run an .EXE file, the bootstrap code was initializing them all
+to empty stacks.  That's fine for the control and data stacks.
+But it won't work for the special stack.  The problem occurs if
+you do SAVEIMAGE from inside some deeply nested context.  When
+you run the resulting .EXE file, variables start out with the
+values they had in that context.  To fix this, we have to save
+to special stack, and start out by restoring old value from this
+stack.  It seems safest to do this when running the .EXE file,
+although in principle one could make SAVEIMAGE temporarily
+restore all old values, do the save, and then put them back. The
+symptoms of this problem were somewhat bizarre.  The first time
+an error occured, he got into the debugger.  When he tried to
+exit from the debugger with ^, he got a stack overflow.  It
+turns out the problem was with (ERR NIL), which is used by the
+debugger to exit.  ERR uses the value of an internal variable to
+find the nearest ERRSET.  That internal variable had not been
+properly initialized because of the problem just described. The
+result was that various stacks were set to invalid values, and
+the interpreter then blew up.
+
+If free space was larger than one section, SAVEIMAGE was saving
+only the first 512 pages.  This is because the format for an
+.EXE file only allocates 9 bits for a repeat count.  SAVEIMAGE
+has been fixed to break up bigger free spaces into multiple
+pieces.
+
+
+5-Oct-81
+
+interpreter:
+  quota exceeded or disk full is no longer trapped by Elisp. It turns
+	out that a Lisp break is not the right thing to do. The EXEC
+	will handle the interrupt, and let you continue after making
+	more space.
+  arrays of bytes, i.e. (ARRAY FOO 7 ... or whatever, should now work.
+	Now and then a register was getting garbaged.  The problem
+	appears to be a microcode bug in ADJBP.  I have rewritten
+	GETBARRAY and SETBARRAY so they don't use ADJBP, and made the
+	array code call these functions.  This is slower than the
+	previous code, which was more tailored to the specific array.
+	But it will work, pending a more efficient revision.
+  inside READ, when an object that looked like an atom occured, I
+	was creating an atom for it, and then calling INTERN.  This
+	was inefficient, since it used free space even in the case
+	where the atom was already on the OBLIST.  Now I first check
+	the OBLIST, and only allocate free space if the atom wasn't
+	there before.
+  I no longer reset the terminal parameters when you go in and out
+	of ELISP.  I had some harebrained reason for wanting to
+	set WIDTH to 0 inside Lisp.
+  EDIT (the EMACS interface) now unbreaks broken functions, just
+	like EDITF.
+  Slight changes have been made to CLOSEF to make it even less likely
+	than before that it will blow up due to some invalidity in
+	the argument.  CLOSEF should be legal on any channel, no matter
+	what strange state it is in.
+  EMACS interface - yet another try at making sure your terminal gets
+	reset after exiting from EMACS.
+
+compiler:
+  the compiler will now remake the .LDC file of any file it is scanning
+	due to DSKIN or REQUIRE if the source is more recent than the
+	 .LDC file.
+  calls to EXPR's that have more than 5 arguments are now flagged as
+	errors by the compiler.  (Previously the first time you heard
+	about it was when LAP blew up.)
+
+unresolved problems.  If anyone can duplicate these problems, I would
+be grateful.  At the moment I can't find them, and so can't fix them.
+It is of course always possible that they are actually user errors.
+  SP stack overflow, apparently when working with a core image in
+	which the user had had deeply nested debugging contexts,
+	^D'ed out and saved it.
+  files not getting closed when expected.  It is not clear that this
+	is Elisp's fault, since in general it isn't supposed to close
+	files except when you ask it to.  People have the impression
+	that we are getting Invalid simultaneous access more often
+	with Elisp than R/UCI Lisp.  It is not yet clear whether this
+	is a bug or a difference between Tops-10 and Tops-20.
+  macro expansions showing up in EMACS.
+
+
+9-23-81
+
+EDITV was an EXPR, should have been an FEXPR.
+
+GLOBALMACRO defined as NILL in the interpreter.  (Actually at the moment
+it doesn't do anything in the compiler, either, since all macros are put
+into the .LAP file.)
+
+Fixed the compiler so that recursive REQUIRE and DSKIN are handled
+correctly.  I.e. previously the compiler would examine any files
+REQUIRE'ed or DSKIN'ed, but not files REQUIRE'ed or DSKIN'ed by them.
+
+Fixed LESSP.  We had forgotten to remove a special pass 1 function for
+LESSP. It was no longer needed, since CMACS contained a compiler macro
+definition for it.  The result was a confusion wherein neither
+definition worked right, and a call was compiled to call the macro LESSP
+as if it were an EXPR.
+
+9-22-81
+
+^B supposedly was giving illegal instructions and other odd things
+now and then.  I found a possible race condition, if ^B occured
+while someone was pushing stuff on SP.  SP could have either an
+odd number of things on it, or part of an EVAL blip.  Added VALSP
+to check for these things, and all interrupt routines that call
+ERR or ERROR call VALSP.  Also RESTART does somewhat simpler
+version.  Only time will tell whether this was the problem.
+
+^T didn't work after EMACS.  Found a typo: W2 instead of W4 before
+a call to SETTYM.  Also, terminal state was not being saved by
+GEDBUF.
+
+] sometimes had to be followed by 2 crlf's.  I duplicated this
+problem in LINEREAD.  Have to gobble trailing ] and ) in LINEREAD.
+
+SPRINT loops.  Actually turns out LENGTH was looping on (A . T).
+Make LENGTH stop on ATOM, not just NIL.  Similar bugs may be all
+over the place.
+

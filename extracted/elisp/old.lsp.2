@@ -1,0 +1,10 @@
+{;; Turns off the special properties of # , and `   This is provided
+    for compatibility with older programs, since these characters
+    used to have different meanings than they do now.  In particular,
+    # and ` were letters, and comma was a list separator.}
+(MODCHR (CHRVAL '/#) 0)
+(MODCHR (CHRVAL '/,) 7)
+(REMPROP 'COMMA 'PRINTMACRO)
+(REMPROP 'DOUBLE-COMMA 'PRINTMACRO)
+(MODCHR (CHRVAL '/`) 0)
+(REMPROP 'BACK-QUOTE 'PRINTMACRO)

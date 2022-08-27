@@ -1,0 +1,2541 @@
+|      -*-Lisp-*-
+|  Compiler for Elisp   27 Aug 1981  J Storrs Hall
+
+|
+|
+|                COPYRIGHT (c) 1981
+|                CHARLES L. HEDRICK
+|
+|     THIS  SOFTWARE  IS  FURNISHED  UNDER AN AGREEMENT FOR MUTUAL
+|     SOFTWARE EXCHANGE, AND  MAY  BE  USED  AND  COPIED  ONLY  IN
+|     ACCORDANCE  WITH  THE  TERMS  OF SUCH AGREEMENT AND WITH THE
+|     INCLUSION OF THE ABOVE COPYRIGHT NOTICE.   THIS SOFTWARE  OR
+|     ANY OTHER COPIES THEREOF MAY NOT  BE  PROVIDED  OR OTHERWISE
+|     MADE  AVAILABLE  TO  ANY  OTHER  PERSON.   NO  TITLE  TO AND
+|     OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+|
+|     THE INFORMATION  IN  THIS  SOFTWARE  IS  SUBJECT  TO  CHANGE
+|     WITHOUT  NOTICE  AND SHOULD NOT BE CONSTRUED AS A COMMITMENT
+|     BY CHARLES HEDRICK OR RUTGERS UNIVERSITY.
+
+
+(Ucilisp:
+(De Fundef (X) (Setq X (Getl X '(Expr Fexpr Macro)))
+    (And X (Cons (Car X) (Cadr X)))))
+(Elisp:
+(DM PUSH (LIS) (LIST 'SETQ (CADR LIS)
+		     (LIST 'CONS (CADDR LIS) (CADR LIS))))
+)
+
+(dskin (cmacs.lod))
+(require (macros.lsp) (boot.lsp))
+
+| Global flags							normally:
+(Special *Msg	     |  print warning messages			  T
+	 *Nolinke    |  if ON inhibits use of *LINKE c-macro	  Nil
+	 *Ord	     |  if ON forces left-to-right arg evaluation T
+	 *Plap       |  if ON causes .LAP file to be output.	  Nil
+		     ||  Otherwise a .FLAP file will be dumped. 
+	 *R2i        |  if ON attempt recursion removal		  T
+	 *Rif2	     |  if ON re-read input file instead of	  Nil
+		     ||	saving forms--in case file too big
+	 *Allspecial |  if ON treat all variables as fluid	  Nil
+         )
+
+(Mapc 'Set '(*Msg *Nolinke *Ord *Plap *R2i *Rif2 *Allspecial)
+	   '( T    Nil      T    Nil   T   Nil   Nil))
+
+(Ucilisp: (Setq *Plap T))  | Ucilisp can't handle binary IO
+
+(Special Maxnargs Tempreg) |  maximum number of arguments permitted
+
+(Setq Maxnargs 5)
+
+(Setq Tempreg 6)        |  extra reg for use as a temp inside cmacs
+
+(Special Alsts   	|  alist of fluid parameters
+	 Codelist	|  code being built
+	 Condtail	|  simulated stack of position in the tail
+			||  of a COND
+	 Enfilade       |  list of forms in current input file
+	 Exit   	|  label for exit jump
+	 Flagg		|  used in &comtest and &fixrest
+	 Freelst	|  list of free variables with bindings
+	 Golist		|  storage map for jump labels
+	 Internals	|  list of all entries of type INTERNAL
+	 Iregs		|  initial register contents
+	 Iregs1		|  temporary for iregs during branch compilation
+	 Jmplist	|  list of locations in codelist for transfers
+	 Labelchain	|  In PROG, label of set of JUMPE's for eval'ed GO's
+	 Lblist		|  list of label words
+	 Llngth		|  cell whose car is length of frame
+	 Name		|  name of function being compiled
+	 Narg		|  number of arguments in function
+	 Reffns		|  A-list of Gensym'ed functions for GETVECTOR .. N
+	 Regs		|  known current contents of registers as an
+			||  alist elements of form (<reg> . <contents>)
+	 Regs1		|  temporary for regs during branch compilation
+	 Reqfiles	|  required files, to be scanned in pass 1
+	 Slst		|  alist for stores which have not yet been used
+	 Stlst		|  list of active stores in function
+	 Stomap		|  storage map for variables
+	 Switch		|  boolean expression value flag
+	 Unknownlist)	|  list of all unknown functions
+
+(Dv Reffns Nil)
+
+|  These c-macros must not change regs 1-maxnargs:
+|	*Allocate	|  (n) allocate stack frame of n words (adjsp q,n)
+|	*Abscond	|  (n) deallocate and return (adjsp q,-n ? popj p,)
+|	*Release	|  (n) deallocate but don't return
+|	*Entry		|  (name type nargs) entry point to function name
+			||  of type type with nargs args (nothing for an expr)
+|	*Store		|  (reg floc) store reg into floc (movem)
+|	*Jump		|  unconditional (jrst)
+|	*Jumpc		|  (addr reg type) jump if exp is of type type (?)
+|	*Jumpnc		|  (addr reg type) ... is not of type
+|	*Jumpnil	|  (addr reg) jump if reg is Nil (jumpe)
+|	*Jumpt		|  (addr reg) jump if reg nonNil (jumpn)
+|	*Jumpe		|  (addr exp) jump if r1 eq exp (caxn/jrst)
+|	*Jumpn		|  (addr exp) jump if r1 neq exp (caxe/jrst)
+|	*Push		|  (reg exp) push exp onto reg (a pdl)
+|	*Lbl		|  (addr) you are here
+|	*Lambind	|  (regs alst) bind lambda vars from regs
+|	*Progbind	|  (alst) bind prog vars (to Nil)
+|	*Freerstr	|  (alst) unbind variables in alst
+
+	|  this macro must only change the reg it loads
+|	*Load		|  (reg exp) load exp into reg (move)
+
+	|  the following do not protect the regs
+|	*Link		|  (fn type nargs) function call (pushj)
+|	*Linke		|  (fn type nargs n) deallocate-link-exit (jrst hack)
+
+
+(De &Mkfunc (U) (List 'Quote U))
+
+(De Rplacw (A B) (Rplaca (Rplacd A (Cdr B)) (Car B)))
+
+(De Constantp (X) (Or (Numberp X) (Stringp X)))
+
+(Ucilisp:
+(De Inchan (X) (Apply/# 'Input (List (Gensym) X)))
+
+(De Outchan (X) (Apply/# 'Output (List (Gensym) X)))
+)
+
+(Elisp:
+(De Inchan (X) (Openf X '(IN OLD)))
+(De Outchan (X) (Openf X '(OUT NEWVERSION)))
+)
+
+(De Flag (X Y) (Mapc (F:l (X) (Put X T Y)) X))
+
+(De Atomp (X) (And (Atom X) X))
+
+(De Pair (X Y) (Cond [(Null X) ()]
+		     [(Atom X) (List (Cons X Y))]
+		     [T (Nconc (Pair (Car X) (Car Y))
+			       (Pair (Cdr X) (Cdr Y)))]))
+
+(Dm Cmsg (Form) `(And *Msg (Ttymsg ,,(Cdr Form))))
+
+(De Canonize (X) (Or (And (Eq 'Defprop (Car X))
+			  (Memq (Cadddr X) '(Expr Fexpr Macro))
+			  (Or (Consp (Caddr X))
+			      (Prog1 Nil (Put (Caddr X) (Cadr X) '*Macdef)))
+			  (Mcons (Cdr (Assoc (Cadddr X) '((Expr . De)
+							  (Fexpr . Df)
+							  (Macro . Dm))))
+				 (Cadr X) (Cdaddr X)))
+		     (And (Get (Car X) 'Xmacro)
+			  (Apply (Get (Car X) 'Xmacro) (List X)))
+		     X))
+
+|  Takes a list of function names
+(Df Compile (X)
+    (Prog (Exp *Plap)
+	  (Setq *Plap T)
+	  (Mapc (F:l (Y)
+		     (Setq Exp (Fundef Y))
+		     (Cond [(Null Exp) (Cmsg 0 "*** " Y " undefined" T)]
+			   [T (Compd Y (Car Exp) (Cdr Exp))]))
+		X)))
+
+| Here we explain about file names.  In the UCI Lisp version, FNAM is
+| an atom, the name part only.  We make up the name by cons'ing
+| LSP or LDC to it.  In the Elisp version, FNAM is a string, which is
+| the source file.  We use it unchanged for the source, and make
+| other names by using JFNS, etc.
+
+(UCILISP:
+(de lspnam (x) (cons x 'lsp))
+(de thisldcnam (x) (cons x 'ldc))
+(de thatldcnam (x) (cons x 'ldc))
+(de lapnam (x) (cons x 'lap))
+)
+
+(ELISP:
+(de lspnam (x) x)
+(de thisldcnam (x) (stconcat (jfns x 001000000000q) 
+		       ".LDC"))
+(de thatldcnam (x) (stconcat (jfns x 111000000001q)
+		       ".LDC"))
+(de lapnam (x) (stconcat (jfns x 001000000000q)
+			 ".LAP"))
+(de Flapnam (x) (stconcat (jfns x 001000000000q)
+			  ".FLAP"))
+)
+
+| Because of the difference between atomic name only and complete
+| string name, a few routines that deal with lists of names must
+| be different.  ADDFILES is essentially UNION for filenames.  In
+| the UCI case, it is complex because the first argument is a list
+| of names in dotted pair form, and we want to produce a list of
+| the CAR's.
+
+| CVSTRINGATOM is used to produce an atom that is used to see
+| whether this file has been read before.  In the UCI case this is
+| just the name, which we are handling as an atom anyway.  In
+| the Elisp case, we have to make an atom out of the string.
+
+(Ucilisp: 
+(De Addfiles (Newfiles Oldfiles Addtofiles)
+   (Mapc (F:L (Newfile) (Or (Member (Car Newfile) Oldfiles)
+			    (Nconc1 Addtofiles (Car Newfile))))
+	 Newfiles))
+
+(De Cvstringatom (st) st)
+
+(De Fileargs (x) x)
+
+(De Uptodate (x y) (Lookup x))
+)
+
+(Elisp:
+
+{;; Memfile tests whether File is MEMBER of Files, using EQSTR for equality}
+(De Memfile (File Files) [Some (F:L (F) (Eqstr F File)) Files])
+
+{;; Addfiles NCONC's non-duplicate files to a list.  It uses FILEARGS to
+    turn UCI format names into strings}
+(De Addfiles (Newfiles Oldfiles Addtofiles) 
+   (Setq Newfiles (Fileargs Newfiles))
+   (Mapc (F:L (Newfile) (Or (Memfile Newfile Oldfiles)
+			    (Nconc1 Addtofiles Newfile)))
+	 Newfiles))
+
+{;; CVStringAtom turns a string into an atom.  We use LOOKUP to 
+   normalize the names}
+(De CvStringAtom (St)
+  (Cond ((Lookup St) (CVStAtom (Lookup St)))
+	((Cvstatom ST))))
+
+(De Cvstatom (St)
+  (Readlist (Mapcan (F:L (Ch) (List '// Ch)) (Explodec St))))
+
+(De Lastwrite (X)
+  (Cond  ((Setq X (Openf X '(Old Error)))
+          (Prog1 (Gtfdb X 14Q) (Closef X)))
+	 (T NIL)))
+
+| Uptodate indicates that X exists and is at least as recent as Y
+(De Uptodate (x y)
+   (Setq X (Lastwrite X))
+   (Setq Y (Lastwrite Y))
+   (Or (And X (Not Y))
+       (And X (*Great X Y))))
+)
+
+(special when) | for timing
+
+| COMPiLe a lisp source file.  This is done in two passes.  The first
+|  essentially gathers declaration information (by inspecting the function
+|  definitions), putting them into a declarations file.  At the end of
+|  phase 1 we either read in the declaration files associated with the
+|  require files, or do a phase one on such source files as have no 
+|  declaration files.  Second pass is the actual compilation.
+
+(Df Compl (Flist)
+  (Let ((When (Time)) (*Raise *Raisedsk) (*Nopoint *Nopointdsk))
+    (Setq Unknownlist Nil)
+    (Setq Flist (Fileargs Flist))
+    (Setq Reqfiles '(Nil))
+    (Mapx Flist
+	  (Setq Enfilade Nil)
+	  (Dopass1 X)
+	  (Put (Cvstringatom X) (Dreverse Enfilade) 'Contents)
+	  (Put (Cvstringatom X) T 'Declared))
+    (Prog (FilesToDo X *Rif2 when)
+Loop	  (Setq Reqfiles (Cdr Reqfiles))
+	  (Or Reqfiles (Return))
+	  (Setq X (Car Reqfiles))
+	  (Or (Get (Cvstringatom X) 'Declared)
+	      (Cond [(Uptodate (Thatldcnam X) (Lspnam X))
+		     (Readecl (Thatldcnam X))
+	             (Put (Cvstringatom X) T 'Declared)]
+		    [(Uptodate (Thisldcnam X) (Lspnam X))
+		     (Readecl (Thisldcnam X))
+		     (Put (Cvstringatom X) T 'Declared)]
+		    [(Lookup (Lspnam X)) (Dopass1 X)
+		     (Put (Cvstringatom X) T 'Declared)]
+		    [T (Cmsg "Can't find required file " X T)]))
+         (Go Loop))
+    (Cmsg 0 "Pass one completed in "
+	  (Minus (- When (Setq When (Time))))
+	  " msec.")
+    (Mapc (Function Dopass2) Flist)
+    (And Unknownlist (Cmsg 0
+		      "The following unknown functions were encountered:" T
+		      Unknownlist T))))
+
+| process a source file (pass 1).  this is either pass one for the
+|  major source file or a declaration-gathering pass for a required 
+|  file.  Read each form in the file.  If it is a defining form,
+|  check it and make note of its type and parameters.  If a require,
+|  add any files to the required files list.
+
+(De Dopass1 (Fnam)
+    (Without T (Outchan (Thisldcnam Fnam))
+     (Within T (Inchan (Lspnam Fnam))
+      (Until Nil (Compass1 (Read))))))
+
+
+(De Compass1 (Form)
+	     (Setq Form (Canonize Form))
+	     (Or *Rif2 (Setq Enfilade (Cons Form Enfilade)))
+	     (Selectq (Car Form)
+		      [Special (Flag (Cdr Form) 'Fluid) (Msg 0 Form T)]
+		      [(Setq Dv Defv) (Msg 0 `(Special ,(Cadr Form)) T)
+				      (Put (Cadr Form) T 'Fluid)]
+		      [(De Df)
+		       (Msg 0 (Mcons 'Dcl (Cadr Form) (Exfun Form)) T)
+		       (And (Get (Cadr Form) '*Macdef)
+			    (Msg 0 (Mcons 'Dm (Get (Cadr Form) '*Macdef) 
+					      (Cddr Form))
+				 T))]
+		      [Dm (Exfun Form) (Msg 0 Form T)]
+		      [Ds (Exstr Form) (Msg 0 Form T)]
+		      [(Declare Elisp:) (mapc 'compass1 (cdr form))]
+		      [(Dskin Require Loadf)
+		             (Addfiles (Cdr Form) (Cdr Reqfiles) Reqfiles)
+		             (Msg 0 Form T)]
+		      Nil))
+
+| REAd DECLarations from a (compiler-generated) .LDC file.
+|  a declaration looks like
+|     (dcl func params)
+|  or (require file1 file2 ...)
+|  or (dm mac (foo) junk)
+|  where params is the value for the params property
+|  and the other two types stand for themselves.
+
+(De Readecl (Fnam)
+    (Within T (Inchan Fnam)
+	(With (Form)
+	    (Until Nil
+		   (Setq Form (Read))
+		   (Selectq (Car Form)
+		    [Special (Flag (Cdr Form) 'Fluid)]
+		    [Dcl (Put (Cadr Form) (Cddr Form) 'Cfntype)]
+		    [Dm (Put (Cadr Form) (Cons 'Lambda (Cddr Form)) 'Xmacro)]
+		    [Ds (Defstruct (Cdr Form))]
+		    [(Dskin Require Loadf)
+		     (Addfiles (Cdr Form) (Cdr Reqfiles) Reqfiles)]
+		    (Cmsg 0 "Invalid DECL form in .LDC file " Form T))))))
+
+| EXamine a STRucture declaration.  Validity check and then call common
+|  routine to process it.
+
+(De Exstr (Form)
+    (Or (And (Cdr Form) (Litatom (Cadr Form)))
+	(Cmsg 0 "Invalid defining form " Form T))
+    (Defstruct (Cdr Form)))    
+
+| EXamine a FUNction.  Takes defining form, ie (de foo ...),
+|  and sets up function type and number of args indicators.
+|  for all cases except dm, return value for params property
+
+(De Exfun (Form)
+    (Or (And (Cdddr Form) (Litatom (Cadr Form)))
+	(Cmsg 0 "Invalid defining form " Form T))
+    (Let ((Resl (Length (Caddr Form))))
+	  (Selectq (Car Form)
+	   [De (And (Get (Cadr Form) '*Macdef)
+		    (Put (Get (Cadr Form) '*Macdef)
+			 (Cons 'Lambda (Cddr Form))
+			 'Xmacro))
+	       (Put (Cadr Form)	(If (Atomp (Caddr Form)) '(Lexpr)
+				    `(Expr ,Resl))
+				'Cfntype)]
+	   [Df (Put (Cadr Form) (List 'Fexpr Resl) 'Cfntype)]
+	   [Dm (Cond [(Eq 1 Resl) (Put (Cadr Form)
+				       (Cons 'Lambda (Cddr Form))
+				       'Xmacro)]
+		     [T (Cmsg "Invalid arg list for macro " Form T)])]
+	   Nil)))
+
+| The following code is stolen from CL.LSP.  It handles DS in the
+| compiler.
+
+| DEFSTRUCT is done for each structure that we see in Pass 1.  I.e.
+| it handles declarations only.
+
+(De Defstruct (L)
+  {;; (DS FOO A (B 1) C)}
+  {;; (DM MAKE-FOO (L) (MAKE-STRUCTURE (GET 'FOO 'STRUCTURE-FIELDS)
+			 (CDR L)))}
+  (Put (READLIST (APPEND (EXPLODEC "MAKE-") (EXPLODE (CAR L))))
+       (LIST 'LAMBDA '(L) (LIST 'MAKE-STRUCTURE
+					 (LIST 'QUOTE (CAR L))
+					 (LIST 'GET (LIST 'QUOTE (CAR L))
+						''X-STRUCTURE-FIELDS)
+					 '(CDR L)))
+       'Xmacro)
+  (Put (READLIST (APPEND (EXPLODE (CAR L)) (EXPLODEC "-P")))
+       '(Expr 1)
+       'Cfntype)
+  (PUTPROP (CAR L) (X-PROC-FIELDS (CDR L) 1) 'X-STRUCTURE-FIELDS)))
+
+(DE X-PROC-FIELDS (SPECS NUMBER)
+  {;; SPECS is the list the user specified, NAME, or (NAME DEF)}
+  {;; Defines the macros}
+  {;; Returns the list (name number default)}
+  (COND ((NULL SPECS) NIL)
+	(T (WITH (NAME DEFAULT)
+	 (COND ((ATOM (CAR SPECS))
+		(SETQ NAME (CAR SPECS))
+		(SETQ DEFAULT NIL))
+	       (T (SETQ NAME (CAAR SPECS))
+		  (SETQ DEFAULT (CADAR SPECS))))
+	 {;; (DM A (L) (LIST 'GETVECTOR (CADR L) 0))  }
+	 (PUT NAME
+	      (LIST 'LAMBDA '(L)
+		      (LIST 'LIST ''GETVECTOR '(CADR L) NUMBER))
+	      'Xmacro)
+	 {;; (DM STORE-A (L) (LIST 'SETVECTOR (CADR L) 1 (CADDR L)))}
+	 (Put (READLIST (APPEND (EXPLODEC "STORE-") (EXPLODE NAME)))
+	      (LIST 'LAMBDA '(L)
+		      (LIST 'LIST ''SETVECTOR '(CADR L) NUMBER '(CADDR L)))
+	      'Xmacro)
+	 (CONS (LIST NAME NUMBER DEFAULT)
+	       (X-PROC-FIELDS (CDR SPECS) (ADD1 NUMBER)))))))
+
+| do pass 2 of a full compile pass through the file.
+|  for each defining form compile and emit the code.
+|  Pass or squelch all other forms appropriately.
+
+(De Dopass2 (Fnam)
+    (Let ((Codewords 0) Gcodelis Constlist Vconstlist Fns-called 
+	  (Fns-defned 0) Labelist Extras)
+	 (Cond [(And *Plap *Rif2)
+		(Without T (Outchan (Lapnam Fnam))
+		 (Within T (Inchan (Lspnam Fnam))
+			 (Until (Terpri) (Compass2 (Canonize (Read))))))]
+	       [*Plap (Without T (Outchan (Lapnam Fnam))
+		       (Mapc 'Compass2 (Get (Cvstringatom Fnam) 'Contents)))]
+	       [*Rif2 (Within T (Inchan (Lspnam Fnam))
+			      (Until (Terpri) (Compass2 (Canonize (Read)))))
+		      (Flapaway (Flapnam Fnam))]
+	       [T (Mapc 'Compass2  (Get (Cvstringatom Fnam) 'Contents))
+		  (Flapaway (Flapnam Fnam))])
+	 (Cmsg 0 "Pass 2 completed for " Fnam " in "
+	       (Minus (- When (Setq When (Time))))
+	       " msec.")))
+
+(De Compass2 (Form)
+    (Selectq (Car Form)
+	     [(De Df) (Compd (Cadr Form) (Car Form) 
+			     (Cons 'Lambda (Cddr Form)))]
+	     [Dm (Compd (Cadr Form) 'Macro
+			(Cons 'Lambda (Cddr Form)))]
+	     [Ds (Compstruct (Cdr Form))]
+	     [(Require Special Nocall Ucilisp: Globalmacro Nocompile ; ;;)]
+	     [(Declare Elisp:) (Mapc 'Compass2 (Cdr Form))]
+	     [Elap (Cond [*Plap (Msg 0 "(" 'Elap)
+				(Mapc 'Laprint (Cdr Form))
+				(Msg ")" T)]
+|  We have to handle both new and old form.  new form has the function
+|  name after ELAP.
+			 [(Atom (Cadr Form)) (Accumulap (Cddr Form))]
+			 [T (Accumulap (Cdr Form))])]
+	     (Cond [*Plap (Sprint Form 1)]
+		   [T (Push Extras Form)])))
+
+|  Here we compile the functions needed for structures.
+
+| Make-structure is not an official user function, so we don't want to
+| put it in cmacs, but we have to compile a call to it here.
+
+(Put 'Make-structure '(Expr 3) 'Cfntype) 
+
+(De Compstruct (L)
+  {;; (DS FOO A (B 1) C)}
+  {;; (DM MAKE-FOO (L) (MAKE-STRUCTURE (GET 'FOO 'STRUCTURE-FIELDS)
+			 (CDR L)))}
+  (With (Form)
+	(Setq Form `(Defprop ,(Car L) ,(Get (Car L) 'X-Structure-fields)
+				      Structure-fields))
+        (Cond [*Plap (Sprint Form 1)]
+              [T (Push Extras Form)]))
+  (Compd (READLIST (APPEND (EXPLODEC "MAKE-") (EXPLODE (CAR L))))
+	 'Macro
+         (LIST 'LAMBDA '(L) (LIST 'MAKE-STRUCTURE
+					 (LIST 'QUOTE (CAR L))
+					 (LIST 'GET (LIST 'QUOTE (CAR L))
+						''STRUCTURE-FIELDS)
+					 '(CDR L))))
+  (Compd (READLIST (APPEND (EXPLODE (CAR L)) (EXPLODEC "-P")))
+         'De
+       	 (LIST  'LAMBDA '(L) (LIST 'EQ '(STRUCTUREP L)
+				       (LIST 'QUOTE (CAR L)))))
+  (X-COMP-FIELDS (CDR L) 1))
+
+(DE X-COMP-FIELDS (SPECS NUMBER)
+  {;; SPECS is the list the user specified, NAME, or (NAME DEF)}
+  {;; Defines the macros}
+  {;; Returns the list (name number default)}
+  (COND ((NULL SPECS) NIL)
+	(T (WITH (NAME DEFAULT)
+	 (COND ((ATOM (CAR SPECS))
+		(SETQ NAME (CAR SPECS))
+		(SETQ DEFAULT NIL))
+	       (T (SETQ NAME (CAAR SPECS))
+		  (SETQ DEFAULT (CADAR SPECS))))
+	 {;; (DM A (L) (LIST 'GETVECTOR (CADR L) 0))  }
+	 (Compd NAME
+	      'Macro
+	      (LIST 'LAMBDA '(L)
+		      (LIST 'LIST ''GETVECTOR '(CADR L) NUMBER)))
+	 {;; (DM A~STORE (L) (LIST 'SETVECTOR (CADADR L) 1 (CADDR L)))}
+	 (Compd (READLIST (APPEND (EXPLODEC "STORE-" ) (EXPLODE NAME)))
+	      'Macro
+	      (LIST 'LAMBDA '(L)
+		      (LIST 'LIST ''SETVECTOR '(CADR L) NUMBER '(CADDR L))))
+	 (X-COMP-FIELDS (CDR SPECS) (ADD1 NUMBER))))))
+
+
+|  These are the functions of the Utah Standard Lisp compiler,
+|  its five-year mission to expore, seek out strange new code,
+|  new systems, to boldly run (sic) where no code has run before.
+
+|  All the comments originally supplied with this compiler 
+|  could be written on a fingernail with a paint roller.
+|  I've added comments in some cases.
+|  {In all fairness, there is a Utah tech report describing it
+|   in some detail, if you can find it.}
+
+|  Root function for compiling a function.  Decides whether a function
+|  can be compiled, calls the rest of the compiler, and prints the
+|  lap code (on current output chnl).
+(De Compd (Name Type Exp)
+    (And *Plap (Msg 0 "(" 'Elap " " Name))
+    (Let (Inspec) (Compd1 Name (&Subrtype Type (Cadr Exp)) Exp))
+    (And *Plap (Msg ")" T))
+    Name)
+
+(De &Subrtype (Type Args)
+    (Cond [(Atomp Args) (If (Memq Type '(De Expr)) 'Lsubr
+			   (Cmsg 0 "***** " Args " invalid args to " Name))]
+	  [T (Cdr (Assoc Type '((De . Subr) (Expr . Subr)
+				(Dm . Msubr) (Macro . Msubr)
+				(Df . Fsubr) (Fexpr . Fsubr))))]))
+
+(De Compd1 (Name Type Exp)
+    (Prog (X)
+	  (Cond [(Atom Exp) (Return Exp)])
+	  (Setq X (Cons (List '*Entry Name Type (Length (Cadr Exp)))
+			(&Comproc (If (Eq Type 'Lsubr)
+				      `(Lambda (,(Cadr Exp)) ,,(Cddr Exp))
+				      Exp)
+				  Name)))
+	  (Cond [*Plap (Mapc 'Laprint X)]
+		[T (Accumulap X)]))
+    Name)
+
+(De Laprint (X)
+    (Cond [(Or (Eq '*Lbl (Car X)) (Eq '*Entry (Car X))) (Msg 0 X)]
+	  [X (Msg (T 8) X)]))
+
+(De &Comproc (Exp Name)
+    (Prog (Codelist Flagg Iregs Iregs1 Jmplist Lblist Llngth Regs Regs1 Alsts
+		    Exit Slst Stlst Stomap Condtail Freelst Switch Narg)
+	  (Setq Llngth (List 1))
+	  (Setq Narg 0)
+	  (Setq Exit (&Genlbl))
+	  (Setq Stomap '((Nil 1)))
+	  (Setq Codelist (List (Cons '*Allocate Llngth)))
+	  (Setq Exp (&Pass1 Exp))
+	  (Cond [(Gt (Length (Cadr Exp)) Maxnargs)
+		 (Cmsg 0 "*****Too many args for compiler in " Name T)])
+	  (Mapc (F:l (Z)
+		     (&Frame Z)
+		     (Setq Narg (+I Narg))
+		     (Cond [(Not (Nonlocal Z))
+			    (Setq Iregs (Nconc Iregs (List (List Narg Z))))])
+		     (Setq Regs (Nconc Regs (List (List Narg Z)))))
+		(Cadr Exp))
+	  (Cond [(Null Regs) (Setq Regs (List (Cons 1 Nil)))])
+	  (Setq Alsts (&Freebind (Cadr Exp) T))
+	  (&Pass2 (Caddr Exp))
+	  (&Freerst Alsts 0)
+	  (&Pass3)
+	  (Rplaca Llngth (- 1 (Car Llngth)))
+	  (Return Codelist)))
+
+(Defv Inspec Nil)
+(Defv Xvbls Nil)
+
+(De Nonlocal (X) (Cond [(And *Allspecial (Not (Get X 'Temporary))) X]
+		       [(Get X 'Fluid) X]
+		       [T (Cdr (Assoc X Inspec))]))
+
+(De Nonlocal1 (X) (Or (And *Allspecial (Not (Get X 'Temporary)))
+		      (Get X 'Fluid)
+		      (Assoc X Inspec)
+		      (And (Memq X Xvbls) (Push Inspec (Cons X (&Mknam X))))))
+
+| Name -- the function name
+| Exp  -- the cdr of the lambda expression
+(nill
+
+(De &Pass0 (Name Exp) (&Fixfntype Name) (&Pa0l (Cdr Exp) (Car Exp)))
+
+(De &Pa0l (Exp Vbls) (Mapx Exp (&Pa0 X Vbls)))
+
+(De &Pa0 (Exp Vbls)
+    (Let (X)
+	 (Cond [(Atom Exp) (Or (Constantp Exp) (Memq Exp '(T ()))
+			       (Memq Exp Vbls) (Nonlocal Exp)
+			       (Mknonlocal0 Exp))]
+	       [(Consp (Car Exp)) (&Pa0fn (Car Exp)) (Pa0l (Cdr Exp))]
+	       [(Setq X (Get (Car Exp) 'Pa0fn)) (Apply X (List Exp Vbls))]
+	       [(Setq X (Get (Car Exp) 'Xmacro))
+		(&Pa0 (Apply X (List Exp)) Vbls)]
+	       [(Setq X (Get (Car Exp) 'Cmacro))
+		(&Pa0 (Sublis (Pair (Car X) (Cdr Exp)) (Cadr X)) Vbls)]
+	       [(Eq (&Cfntype (Car Exp)) 'Fexpr)]
+	       [(Or [Memq (Car Exp) Vbls] [Nonlocal (Car Exp)])
+		(&Pa0l (Cdr Exp) Vbls)]
+	       [T (&Pa0l (Cdr Exp) Vbls)])))
+
+)  | end of pass0 preliminary code
+
+(De &Pass1 (Exp) (&Pa1 Exp Nil))
+
+(De &Pa1 (U Vbls)
+    (Prog (X)
+	  (Return (Cond [(Atom U)
+			 (Cond [(Or [Constantp U] [Memq U '(Nil T)]) `',U]
+			       [(Memq U Vbls) U]
+			       [(Nonlocal1 U) U]
+			       [T (Mknonlocal1 U) U])]
+			[(Not (Atom (Car U)))
+			 (And (Eq 'Lambda (Caar U)) (Setq U (Relambdafy U)))
+			 (Cons (&Pa1 (Car U) Vbls) (&Palis (Cdr U) Vbls))]
+			[(Setq X (Get (Car U) 'Pa1fn)) (Apply X (List U Vbls))]
+			[(Setq X (Get (Car U) 'Xmacro))
+			 (&Pa1 (Apply X (List U)) Vbls)]
+			[(Setq X (Get (Car U) 'Cmacro))
+			 (&Pa1 (Sublis (Pair (Car X) (Cdr U)) (Cadr X)) Vbls)]
+			[(And [Eq (&Cfntype (Car U)) 'Fexpr]
+			      [Not (Get (Car U) 'Compfn)])
+			 (List (Car U) `',(Cdr U))]
+			[(Eq 'Lexpr (&Cfntype (Car U)))
+			 (Cons (Car U) (&Palis (Cdr U) Vbls))]
+			[(And (Null (Get (Car U) 'Cfntype))
+			      (Memq (Car U) Vbls)
+			      (Null (Nonlocal (Car U))))
+			 (List '*Apply (Car U) (&Palist (Cdr U) Vbls))]
+			[T (Setq U (&Pargchk U))
+			   (Cons (Car U) (&Palis (Cdr U) Vbls))]))))
+
+(De &Paiden (U Vbls) U)
+
+(Put 'Go '&Paiden 'Pa1fn)
+
+(Put 'Quote '&Paiden 'Pa1fn)
+
+(Put 'Code '&Paiden 'Pa1fn)
+
+(De Relambdafy (U)
+    (Let ((Args (Cadar U)))
+	 (Cond [(Ge 5 (Length Args)) U]
+	       [T `((Lambda ,(Ldiff Args (Nth Args 6))
+		     ,(Relambdafy `((Lambda ,(Nth Args 6) ,,(Cddar U))
+				    ,,(Nth U 7))))
+		    ,,(Ldiff (Cdr U) (Nth U 7)))])))
+
+(De &Pargchk (U)
+    (Let ((C (Get (Car U) 'Cfntype)) (F (Car U)) (N (Length (Cdr U))))
+	 (Cond [(Null C) U]
+	       [(Neq (Car C) 'Expr) (Cmsg 0 "Strange cfntype " C " in " F) U]
+	       [(Eq (Cadr C) 'Spec) U]
+	       [(Eq (Cadr C) 'N) U]
+	       [(Numberp (Cadr C))
+		(Cond [(Eq (Cadr C) N) U]
+		      [(Gt (Cadr C) N) (Rpad U (+I (Cadr C)))]
+		      [(Lt (Cadr C) N)
+		       (Cmsg "Too many args to " F " in " Name)])]
+	       [(And (Consp (Cadr C)) (Consp (Cdadr C)) (Assoc N (Cadr C)))
+		(Cons (Cdr (Assoc N (Cadr C))) (Cdr U))]
+	       [T (Cmsg 0 "Cfntype strangeness " C " for " F) U])))
+
+(De Rpad (U N)
+    (Append U (Let (X) (Rptq (- N (Length U)) (Setq X (Cons Nil X))) X)))
+
+(De &Pacond (U Vbls)
+    (Cons 'Cond
+	  (Mapcar (F:l (Z)
+		       (If (Cdr Z) 
+			   (List (&Pa1 (Car Z) Vbls)
+			         (&Pa1 (&Mkprogn (Cdr Z)) Vbls))
+			   (List (&Pa1 (Car Z) Vbls))))
+		  (Cdr U))))
+
+(Put 'Cond '&Pacond 'Pa1fn)
+
+| If we set (GETVECTOR x i), where I is constant, we replace
+| this by (GETVEC-1 X), which gives us something that is REGREF so we
+| can compile in line.
+
+(De &PaGetVector (U Vbls)
+    (Cond [(And (Eq (Length U) 3)
+		(Inump (Caddr U)))
+	   (Let ((Pair (Assoc (Caddr U) Reffns)))
+		(Or Pair (Push Reffns
+			      (Setq Pair (Cons (Caddr U) (&Vecfn (Caddr U))))))
+	        (List (Cdr Pair) (&Pa1 (Cadr U) Vbls)))]
+          [T (Setq U (&Pargchk U))
+	     (Cons (Car U) (&Palis (Cdr U) Vbls))]))
+
+(Put 'Getvector '&PaGetVector 'Pa1fn)
+
+| We turn constant SETVEC's into (&ConstSetvec -gensym- vector value)
+
+(De &PaSetVector (U Vbls)
+    (Cond [(And (Eq (Length U) 4)
+		(Inump (Caddr U)))
+	   (Let ((Pair (Assoc (Caddr U) Reffns)))
+		(Or Pair (Push Reffns
+			      (Setq Pair (Cons (Caddr U) (&Vecfn (Caddr U))))))
+	        (List '&ConstSetvec (Cdr Pair) (&Pa1 (Cadr U) Vbls)
+					       (&Pa1 (Cadddr U) Vbls)))]
+          [T (Setq U (&Pargchk U))
+	     (Cons (Car U) (&Palis (Cdr U) Vbls))]))
+
+(Put 'Setvector '&PaSetVector 'Pa1fn)
+
+(De &Vecfn (Element)
+    (Let ((Name (Maknam (Append (Explode 'GETVEC-) (Explode Element)))))
+	 (Put Name T 'Regref)
+	 (Put Name Element 'Vectorfn)
+	 Name))
+
+(De &Paerrset (U Vbls)
+    (List 'Errset (&Pa1 (Cadr U) Vbls) (If (Cddr U) (Caddr U) T)))
+
+(Put 'Errset '&Paerrset 'Pa1fn)
+
+(De &Pawithinout (U Vbls)
+    (List (Car U) (&Pa1 [If (Eq (Cadr U) T) (&Mkprogn (Cdddr U))
+					    (&Mkprogn (Cddr U))] Vbls)
+		  (&Pa1 [If (Eq (Cadr U) T) (Caddr U) (Cadr U)] Vbls)
+		  (If (Eq (Cadr U) T) T NIL)))
+
+(Put 'Within '&Pawithinout 'Pa1fn)
+(Put 'Without '&Pawithinout 'Pa1fn)
+
+(De &Pareadcontext (U Vbls)
+    (List (Car U) (&Pa1 (&Mkprogn (Cdr U)) Vbls)))
+
+(Put 'Readcontext '&Pareadcontext 'Pa1fn)
+
+(De &Pafunc (U Vbls)
+    (Cond [(Atom (Cadr U)) (&Mkfunc (Cadr U))]
+	  [(Neq (Caadr U) 'Lambda)
+	   (Cmsg 0 "***** Function of something that is not a functional form:"
+		 T "*****   " (Cadr U) T)]
+	  [T (&Mkfunc (Let ((Xvbls Vbls) (Newname (&Mknam Name)))
+	                   (Put Newname  `(Expr ,(Length (Cadadr U)))
+				'Cfntype)
+			   (Compd1 Newname 'Subr (Cadr U))))]))
+
+(Put 'Function '&Pafunc 'Pa1fn)
+
+(De &Palamb (U Vbls)
+    (Cons 'Lambda
+	  (List (Cadr U) (&Pa1 (&Mkprogn (Cddr U)) (Append (Cadr U) Vbls)))))
+
+(Put 'Lambda '&Palamb 'Pa1fn)
+
+(De &Palist (U Vbls) (Cons 'List (&Palis U Vbls)))
+
+(De &Paprog (U Vbls)
+    (Cons 'Prog
+	  (Cons (Cadr U) (&Paprog1 (Cddr U) (Append (Cadr U) Vbls)))))
+
+(De &Paprog1 (U Vbls)
+    (Mapcar (F:l (X) (Cond [(Atom X) X] [T (&Pa1 X Vbls)])) U))
+
+(Put 'Prog '&Paprog 'Pa1fn)
+
+(De &Palis (U Vbls) (Mapcar (F:l (X) (&Pa1 X Vbls)) U))
+
+(De Mknonlocal0 (U)
+    (Cmsg 0 "*** " U " declared fluid in " Name T)
+    (Flag (List U) 'Fluid)
+    (Msg 0 (List 'Special U) T))
+
+(De Mknonlocal1 (U)
+    (Cmsg 0 "***** " U " undiscovered fluid in " Name T)
+    (Flag (List U) 'Fluid)
+    (List 'Fluid U))
+
+(De &Mknam (U)
+    (Readlist (Nconc (Explode U) (List '~) (Explode (Gensym)))))
+
+| &Gennam is used when we are Gensym'ing temporary variables.  They
+| have to be flagged as such, to keep from blowing up *Allspecial mode,
+| since we want them to be treated as local whenever possible, even
+| if the user's variables are all special.
+
+(De &Genname Nil (Let ((U (Gensym))) (Putprop U T 'Temporary) U))
+
+(De &Mkprogn (U)
+    (Cond [(Or [Null U] [Cdr U]) (Cons 'Progn U)] [T (Car U)]))
+
+(De &Pass2 (Exp) (&Comval Exp 0))
+
+| With each expression to be compiled a "status" value is passed.
+| This mainly tells what is going to happen to the value thereof.
+| As far as I can tell, this is what the values of the status indicate:
+|   0 -- The value of this exp will be returned as the value 
+|        of the function.
+|   1 -- The value of this exp will be used by surrounding code.
+|   2 -- The value of this exp will be thrown away; it is not needed.
+|   3 -- This exp is a "statement" in a prog whose status is 0 or 1.
+|   4 -- This exp is a "statement" in a prog whose status is > 1.
+
+(De &Comval (Exp Status)
+    (Cond [(&Anyreg Exp Nil)
+	   (Cond [(Gt Status 1) Nil] [T (&Lreg1 Exp Status)])]
+	  [T (&Comval1 Exp Stomap Status)]))
+
+(De &Comval1 (Exp Stomap Status)
+    (Prog (X)
+	Tryagain
+	  (Cond [(Atom Exp) (Cond [(Lt Status 2) (&Lreg1 Exp Status)] [T Nil])]
+		[(Not (Atom (Car Exp)))
+		 (Cond [(Eq (Caar Exp) 'Lambda)
+			(&Comply (Car Exp) (Cdr Exp) Status)]
+		       [T (Setq Exp `(*Apply ,(Car Exp) (List ,,(Cdr Exp))))
+			  (Go Tryagain)])]
+		[(Setq X (Get (Car Exp) 'Compfn)) (Apply X (List Exp Status))]
+		[(Eq 'Lexpr (&Cfntype (Car Exp))) (&Comlexpr Exp Status)]
+		[(And *R2i [Eq (Car Exp) Name] [Equal Status 0] [Null Freelst])
+		 (&Comrec Exp Status)]
+		[(Eq (Car Exp) 'Lambda)
+		 (Cmsg 0 "*****Invalid use of Lambda in function" Name T)]
+		[T (&Call (Car Exp) (Cdr Exp) Status)])
+	  (Return Nil)))
+
+{;; This is the original.  We are being superconservative for the
+ moment, because this blew cases like (X (SETQ X (CDR X)))
+(De &Anyreg (U V)
+    (Cond [(&Locatep U) T]
+	  [T (And [Or [Atom U]
+		      [And [&Regrefp (Car U)] [&Anyreg (Cadr U) Nil]]]
+		  [Or [Null *Ord] [&Anyregl V]])]))
+}
+
+(De &Anyreg (U V)
+    (Cond [(Eq (Car (Consp U)) 'Quote) T]
+	  [T (And [Or [&Locatep U]
+		      [Atom U]
+		      [And [&Regrefp (Car U)] [&Anyreg (Cadr U) Nil]]]
+		  [Or [Null *Ord] [&Anyregl V]])]))
+
+(De &Anyregl (U)
+    (Or [Null U] [And [&Anyreg (Car U) Nil] [&Anyregl (Cdr U)]]))
+
+(De &Call (Fn Args Status) (&Call1 Fn (&Comlis Args) Status))
+
+(De &Call1 (Fn Args Status)
+    (Prog (Argno)
+	  (Setq Argno (Length Args))
+	  (Cond ((Null Fn) 
+		 (Cmsg 0 "*****Trying to call NIL as a function in " Name T)
+		 (Return))
+		((Not (Litatom FN))
+		 (Cmsg 0 "*****Trying to treat " FN 
+			 " as an atomic function in " Name T)
+		 (Return))
+		((*Great Argno Maxnargs)
+		 (Cmsg 0 "*****Too many args for compiler in call to " FN
+			 " in " Name T)
+		 (Return)))
+	  (&Loadargs Args Status)
+	  (Cond ((&Regrefp Fn) (&Attach `(*Load 1 (,Fn 1))))
+		((Get Fn 'DirectCall)
+		 (&Attach `(*Link ,(Get Fn 'DirectCall) Internal ,Argno)))
+	        (T (&Attach (List '*Link Fn (&Cfntype Fn) Argno))))
+	  (Cond [(Get Fn 'Onereg) (Setq Regs (Cons (Cons 1 Nil) (Cdr Regs)))]
+		[(Get Fn 'Tworeg)
+		 (Setq Regs (Cons (Cons 1 Nil) (Delasc 2 (Cdr Regs))))]
+		[T (Setq Regs (List (Cons 1 Nil)))])))
+
+(Put 'Atom '%Atom 'Directcall)
+
+(Put 'Litatom '%Litatom 'Directcall)
+
+(Put 'Cons '%Cons 'Directcall)
+
+(Put 'Xcons '%Xcons 'Directcall)
+
+(Put 'Ncons '%Ncons 'Directcall)
+
+(Flag '(Atom Litatom Ncons) 'Onereg)
+
+(Flag '(Cons Xcons) 'Tworeg)
+
+(De Delasc (U V)
+    (Cond [(Null V) Nil]
+	  [(Equal U (Caar V)) (Cdr V)]
+	  [T (Cons (Car V) (Delasc U (Cdr V)))]))
+
+(De &Comlis (Exp)
+    (Prog (Acused Y)
+	  (While Exp 
+		 (Cond [(&Anyreg (Car Exp) (Cdr Exp))
+			(Setq Y (Cons (Car Exp) Y))]
+		       [T (Cond [Acused (&Store1)])
+			  (&Comval1 (Car Exp) Stomap 1)
+			  (Setq Acused (&Genname))
+			  (Setq Regs
+				(Cons (Cons 1 (Cons Acused (Cdar Regs)))
+				      (Cdr Regs)))
+			  (Setq Y (Cons Acused Y))])
+		 (Setq Exp (Cdr Exp)))
+	  (Return Y)))
+
+(De &Store1 Nil
+    (Prog (X)
+	  (Setq X (Cadar Regs))
+	  (Cond [(Or [Null X] (And [Consp X] [Eq (Car X) 'Quote]))
+	         (Return Nil)]
+		[(Not (Assoc X Stomap)) (&Frame X)])
+	  (&Store0 X 1)))
+
+(De &Comply (Fn Args Status)
+    (Prog (Alsts Vars I)
+	  (Setq Vars (Cadr Fn))
+	  (&Loadargs (&Comlis Args) 1)
+	  (Setq Args (&Remvarl Vars))
+	  (Setq I 1)
+	  (Mapc (F:l (V)
+		     (&Frame V)
+		     (Setq Regs (&Repasc I V Regs))
+		     (Setq I (+I I)))
+		Vars)
+	  (Setq Alsts (&Freebind Vars T))
+	  (Setq I 1)
+	  (Mapc (F:l (V)
+		     (Cond [(Not (Nonlocal V)) (&Store0 V I)])
+		     (Setq I (+I I)))
+		Vars)
+	  (&Comval (Caddr Fn) Status)
+	  (&Freerst Alsts Status)
+	  (&Rstvarl Vars Args)))
+
+(De &Comrec (Exp Status)
+    (Prog (X Z)
+	  (&Loadargs (&Comlis (Cdr Exp)) Status)
+	  (Setq Z Codelist)
+	  (Cond [(Null (Cdr Z))
+		 (Cmsg 0 "*****Circular definition for " (Car Exp) T)])
+	  (While (Cddr Z) (Setq Z (Cdr Z)))
+	  (Cond [(Eq (Caar Z) '*Lbl) (Setq X (Cdar Z))]
+		[T (Setq X (&Genlbl))
+		   (Rplacd Z (List (Cons '*Lbl X) (Cadr Z)))])
+	  (&Attjmp X)))
+
+(De &Loadargs (Args Status)
+    (Prog (N)
+	  (Setq N (Length Args))
+	  (Cond [(Gt Status 0) (&Clrregs)])
+	  (While Args 
+		 (&Lreg N (Car Args) (Cdr Args) Status)
+		 (Setq N (-I N))
+		 (Setq Args (Cdr Args)))))
+
+(De &Locatep (X)
+    (Or (Eq (Car (Consp X)) 'Quote)
+	(&Rassoc X Regs)
+	(And (Atom X) (Or (Nonlocal X) (Assoc X Stomap)))
+	(And (Consp X) (&Regrefp (Car X)) (&Rassoc (Cadr X) Regs))))
+
+(De &Locate (X)
+    (Prog (Y Vtype)
+	  (Cond [(Eq (Car (Consp X)) 'Quote) (Return (List X))]
+		[(Setq Y (&Rassoc X Regs)) (Return (List (Car Y)))]
+		[(Consp X) (And (&Regrefp (Car X))
+				(Setq Y (&Rassoc (Cadr X) Regs))
+				(Return `((,(Car X) ,(Car Y)))))
+			   (Cmsg 0 "**** Can't &Locate " X " in " Name)]
+		[(Setq Vtype (Nonlocal X)) (Return `((Fluid ,Vtype)))])
+	  (While (Setq Y (Assoc X Slst)) (Setq Slst (Remove Y Slst)))
+	  (Return (Cond [(Setq Y (Assoc X Stomap)) (Cdr Y)]
+			[T (List (Mknonlocal1 X))]))))
+
+(De &Lreg (Reg U V Status)
+    (Prog (X Y)
+	  (Cond [(And [Setq X (Assoc Reg Regs)] [Member U (Cdr X)])
+		 (Return Nil)]
+		[(And [Setq Y (Assoc Reg Iregs)]
+		      [Or [Gt Status 0] [&Memlis (Cadr Y) V]])
+		 (&Store0 (Cadr Y) Reg)
+		 (Setq Iregs (Remove Y Iregs))])
+	  (&Lodreg Reg U)))
+
+(De &Lodreg (Reg U)
+    (Cond [(&Locatep U) (&Attach `(*Load ,Reg ,,(&Locate U)))]
+	  [(&Regrefp (Car U)) (&Lodreg Reg (Cadr U))
+			      (&Attach `(*Load ,Reg (,(Car U) ,Reg)))]
+	  [T (Cmsg 0 "***** Can't &Lodreg " U " in " Name T)])
+    (Setq Regs (&Repasc Reg U Regs)))
+
+(De &Lreg1 (X Status) (&Lreg 1 X Nil Status))
+
+(Flag '(Car Cdr Not Null Consp) 'Regref)
+
+(Flag '(Car Cdr Not Null Consp) 'Onereg)
+
+(De &Regrefp (X) (Get X 'Regref))
+
+(De &Freebind (Vars Lambp)
+    (Prog (Falst Fregs X Y I)
+	  (Setq I 1)
+	  (Mapc (F:l (X)
+		     (Cond [(Setq Y (Nonlocal X))
+			    (Setq Falst (Cons (Cons Y (&Getffrm X)) Falst))
+			    (Setq Fregs (Cons I Fregs))])
+		     (Setq I (+I I)))
+		Vars)
+	  (Cond [(Null Falst) (Return Nil)])
+	  (Cond [Lambp (&Attach (List '*Lambind Fregs Falst))]
+		[T (Let ((Fwd Falst) Bas)
+			(While (Setq Bas Fwd)
+			       (Setq Fwd (Nth Bas 6))
+			       (&Attach `(*Progbind ,(Ldiff Bas Fwd)))))])
+	  (Return Falst)))
+
+(De &Freerst (Alsts Status)
+    (Let ((Fwd Alsts) Bas)
+	 (While (Setq Bas Fwd)
+		(Setq Fwd (Nth Bas 6))
+		(&Attach `(*Freerstr ,(Ldiff Bas Fwd))))))
+
+(De &Attach (U) (Setq Codelist (Cons U Codelist)))
+
+(De &Store0 (U Reg)
+    (Prog (X)
+	  (Setq X (Cons '*Store (Cons Reg (&Getfrm U))))
+	  (Setq Stlst (Cons X Stlst))
+	  (&Attach X)
+	  (Cond [(Atom U)
+		 (&Clrstr U)
+		 (Setq Slst (Cons (Cons U Codelist) Slst))])))
+
+(De &Clrstr (Var)
+    (Prog (X)
+	  (Cond [Condtail (Return Nil)])
+	  (Setq X (Assoc Var Slst))
+	  (Cond [(Null X) (Return Nil)])
+	  (Setq Stlst (&Deleq (Cadr X) Stlst))
+	  (Setq Slst (&Deleq X Slst))
+	  (Rplaca (Cadr X) '*Noop)))
+
+(De &Comlexpr (Exp Status)
+    (Let ((Fn (Car Exp)) (Argl (&Comlis (Cdr Exp))) (N (Length (Cdr Exp))))
+	 (And (Gt Status 0) (&Clrregs))
+	 (Map (F:l (Lis)
+	       (Cond [(&Locatep (Car Lis))
+		      (&Attach `(*Push Q ,,(&Locate (Car Lis))))]
+		     [T (&Lreg 1 (Car Lis) (Cdr Lis) 1)
+			(&Attach `(*Push Q 1))]))
+	      (Reverse Argl))
+	 (&Attach `(*Load 1 ',N))
+	 (&Attach `(*Link ,Fn Lexpr ,N))
+	 (&Attach `(*Release ,N))
+	 (Setq Regs `((1)))))
+
+
+(De &Comarg (Exp Status)
+    (&Lreg1 (Car (&Comlis (Cdr Exp))) Status)
+    (&Attach `(*Load 1 %Larg))
+    (Setq Regs (&Repasc 1 Nil Regs)))
+
+(Put 'Arg '&Comarg 'Compfn)
+
+(De &Comsetarg (Exp Status)
+    (Let ((Args (&Comlis (Cdr Exp))))
+	 (&Lreg 2 (Car Args) (Cdr Args) Status)
+	 (&Lreg1 (Cadr Args) Status)
+	 (&Attach `(*Store 2 %larg))
+	 (If (Lt Status 2) (&Attach '(*Load 1 2)))
+	 (Setq Regs (&Repasc 1 Nil Regs))
+	 (Setq Regs (&Repasc 2 Nil Regs))))
+
+(Put 'Setarg '&Comsetarg 'Compfn)
+
+(De &Comrplac (Exp Status)
+    (Let ((Args (&Comlis (Cdr Exp)))
+	  (Which (If (Eq (Car Exp) 'Rplaca) 'Car 'Cdr)))
+	 (&Lreg 2 (Car Args) (Cdr Args) Status)
+	 (&Lreg1 (Cadr Args) Status)
+	 (&Attach `(*Store 2 (,Which 1)))
+	 (Setq Regs (&Repasc 1 Nil Regs))
+	 (Setq Regs (&Repasc 2 Nil Regs))))
+
+(Put 'Rplaca '&Comrplac 'Compfn)
+
+(Put 'Rplacd '&Comrplac 'Compfn)
+
+| Constant SETVECTOR:
+|   (&CONSTSETVEC -gensym- vector value)
+
+(De &Comsetvec (Exp Status)
+    (Let ((Args (&Comlis (Cddr Exp))))
+	 (&Lreg 2 (Car Args) (Cdr Args) Status)
+	 (&Lreg1 (Cadr Args) Status)
+	 (&Attach `(*Store 2 (,(Cadr Exp) 1)))
+	 (If (Lt Status 2) (&Attach '(*Load 1 2)))
+	 (Setq Regs (&Repasc 1 Nil Regs))
+	 (Setq Regs (&Repasc 2 Nil Regs))))
+
+(Put '&ConstSetvec '&Comsetvec 'Compfn)
+
+(De &Comtst (Exp Labl)
+    (Prog (X)
+	  (While (And (Consp Exp )(Memq (Car Exp) '(Null Not)))
+		 (Setq Switch (Not Switch))
+		 (Setq Exp (Cadr Exp)))
+	  (Cond [(And [Not (Atom Exp)]
+		      [Atom (Car Exp)]
+		      [Setq X (Get (Car Exp) 'Comtst)])
+		 (Apply X (List Exp Labl))]
+		[T (Cond [(Equal Exp ''T)
+			  (Cond [Switch (&Attjmp Labl)] [T (Setq Flagg T)])]
+			 [T (&Comval Exp 1)
+			    (&Attach (List (Cond [Switch '*Jumpt]
+						 [T '*Jumpnil])
+					   (Car Labl) 1))
+			    (&Addjmp Codelist)])
+		   (Setq Regs1 Regs)
+		   (Setq Iregs1 Iregs)])
+|  May need to check for *Jumpx 1 here
+	  (Cond [(Eq (Car (Car Codelist)) '*Jumpt)
+		 (Setq Regs
+		       (Cons (Cons 1 (Cons ''Nil (Cdar Regs))) (Cdr Regs)))]
+		[(Eq (Car (Car Codelist)) '*Jumpnil)
+		 (Setq Regs1
+		       (Cons (Cons 1 (Cons ''Nil (Cdar Regs1))) (Cdr Regs1)))])
+     ))
+
+(De &Comandor (Exp Status)
+    (Prog (Fn Labl Iregsl Regsl)
+	  (Setq Fn (Eq (Car Exp) 'And))
+	  (Setq Labl (&Genlbl))
+	  (Cond [(Gt Status 1)
+		 (Prog (Regs1)
+		       (&Tstandor Exp Labl)
+		       (Setq Regs (&Rmerge2 Regs Regs1)))]
+		[T (Cond [(Gt Status 0) (&Clrregs)])
+		   (Setq Exp (Cdr Exp))
+		   (While Exp 
+			  (&Comval (Car Exp) (Cond [(Cdr Exp) 1] [T Status]))
+			  (Setq Iregsl (Cons Iregs Iregsl))
+			  (Setq Regsl (Cons Regs Regsl))
+			  (Cond [(Cdr Exp)
+				 (&Attach (List (Cond [Fn '*Jumpnil]
+						      [T '*Jumpt])
+						(Car Labl)
+						1))
+				 (&Addjmp Codelist)])
+			  (Setq Exp (Cdr Exp)))
+		   (Setq Iregs (&Rmerge Iregsl))
+		   (Setq Regs (&Rmerge Regsl))
+		   Nil])
+	  (&Attlbl Labl)))
+
+(De &Tstandor (Exp Labl)
+    (Prog (Flg Flg1 Fn Lab2 Regsl Regs1l Tailp)
+	  (Setq Flg Switch)
+	  (Setq Switch Nil)
+	  (Setq Fn (Eq (Car Exp) 'And))
+	  (Setq Flg1 (Eq Flg Fn))
+	  (Setq Exp (Cdr Exp))
+	  (Setq Lab2 (&Genlbl))
+	  (&Clrregs)
+	  (While Exp 
+		 (Setq Switch Nil)
+		 (Cond [(And [Null (Cdr Exp)] Flg1)
+			(Cond [Fn (Setq Switch T)])
+			(&Comtst (Car Exp) Labl)
+			(Setq Regsl (Cons Regs Regsl))
+			(Setq Regs1l (Cons Regs1 Regs1l))]
+		       [T (Cond [(Not Fn) (Setq Switch T)])
+			  (Cond [Flg1 (&Comtst (Car Exp) Lab2)
+				      (Setq Regsl (Cons Regs1 Regsl))
+				      (Setq Regs1l (Cons Regs Regs1l))]
+				[T (&Comtst (Car Exp) Labl)
+				   (Setq Regsl (Cons Regs Regsl))
+				   (Setq Regs1l (Cons Regs1 Regs1l))])])
+		 (Cond [(Null Tailp)
+			(Setq Condtail (Cons Nil Condtail))
+			(Setq Tailp T)])
+		 (Setq Exp (Cdr Exp)))
+	  (&Attlbl Lab2)
+	  (Setq Regs (Cond [(Not Flg1) (Car Regsl)] [T (&Rmerge Regsl)]))
+	  (Setq Regs1 (Cond [Flg1 (Car Regs1l)] [T (&Rmerge Regs1l)]))
+	  (Cond [Tailp (Setq Condtail (Cdr Condtail))])
+	  (Setq Switch Flg)))
+
+(Put 'And '&Comandor 'Compfn)
+
+(Put 'Or '&Comandor 'Compfn)
+
+(Put 'And '&Tstandor 'Comtst)
+
+(Put 'Or '&Tstandor 'Comtst)
+
+(De &Comcond (Exp Status)
+    (Prog (Iregs1 Regs1 Flagg Switch Lab1 Lab2 Regsl Iregsl Tailp)
+	  (Setq Exp (Cdr Exp))
+	  (Setq Lab1 (&Genlbl))
+	  (Cond [(Gt Status 0) (&Clrregs)])
+	  (Mapc (F:l (X)
+		     (Setq Lab2 (&Genlbl))
+		     (Setq Switch Nil)
+		     (Cond [(Cdr X) (&Comtst (Car X) Lab2)]
+			   [T (&Comval (Car X) 1)
+			      (&Attach (List '*Jumpnil (Car Lab2) 1))
+			      (&Addjmp Codelist)
+			      (Setq Iregs1 Iregs)
+			      (Setq Regs1
+				    (Cons (Cons 1 (Cons ''Nil (Cdar Regs)))
+					  (Cdr Regs)))])
+		     (Cond [(Null Tailp)
+			    (Setq Condtail (Cons Nil Condtail))
+			    (Setq Tailp T)])
+		     (&Comval (Cadr X) Status)
+		     (Cond [(Not (&Transferp (Car Codelist)))
+			    (&Attjmp Lab1)
+			    (Setq Iregsl (Cons Iregs Iregsl))
+			    (Setq Regsl (Cons Regs Regsl))])
+		     (Setq Regs Regs1)
+		     (Setq Iregs Iregs1)
+		     (Setq Iregs1 Nil)
+		     (&Attlbl Lab2))
+		Exp)
+	  (Cond [(And [Null Flagg] [Lt Status 2])
+		 (&Lreg1 ''Nil Status)
+		 (Setq Iregs (&Rmerge1 Iregs Iregsl))
+		 (Setq Regs (&Rmerge1 Regs Regsl))]
+		[Regsl (Setq Iregs (&Rmerge1 Iregs Iregsl))
+		       (Setq Regs (&Rmerge1 Regs Regsl))])
+	  (&Attlbl Lab1)
+	  (Cond [Tailp (Setq Condtail (Cdr Condtail))])))
+
+(De &Rmerge (U)
+    (Cond [(Null U) Nil] [T (&Rmerge1 (Car U) (Cdr U))]))
+
+(De &Rmerge1 (U V)
+    (Cond [(Null V) U] [T (&Rmerge1 (&Rmerge2 U (Car V)) (Cdr V))]))
+
+(De &Rmerge2 (U V)
+    (Cond [(Or [Null U] [Null V]) Nil]
+	  [T ((Lambda (X)
+	       (Cond [X (Cons (Cons (Caar U) (Xn (Cdar U) (Cdr X)))
+			      (&Rmerge2 (Cdr U) (Remove X V)))]
+		     [T (&Rmerge2 (Cdr U) V)]))
+	      (Assoc (Caar U) V))]))
+
+(Flag '(*Jump *Linke Error) 'Transfer)
+
+(Put 'Cond '&Comcond 'Compfn)
+
+(De &Comcons (Exp Status)
+    (Cond [(Or [Null (Setq Exp (Cdr Exp))] [Null (Cdr Exp)] [Cddr Exp])
+	   (Cmsg 0 "*****Invalid args to cons: " Exp T)]
+	  [(Equal (Cadr Exp) ''Nil) (&Call 'Ncons (List (Car Exp)) Status)]
+	  [(And [Eq (Car (&Rassoc (Cadr Exp) Regs)) 1] [&Anyreg (Car Exp) Nil])
+	   (&Call1 'Xcons (&Comlis (Reverse Exp)) Status)]
+	  [(&Anyreg (Cadr Exp) Nil) (&Call 'Cons Exp Status)]
+	  [T (&Call1 'Xcons (Dreverse (&Comlis Exp)) Status)]))
+
+(Put 'Cons '&Comcons 'Compfn)
+
+| Exit locally NIL so no GOs or RETURNs allowed inside
+(De &Comerrset (Exp Status)
+    (Let ((Lab1 (&Genlbl)) (Y (Assoc 1 Iregs)) Exit)
+	 (Cond [Y (&Store0 (Cadr Y) 1)
+		  (Setq Iregs (Remove Y Iregs))])
+	 (&Lreg1 `',(Caddr Exp) 1)
+	 (&Attach `(*Link %errset Internal 1))
+	 (&Attjmp Lab1)
+	 (&Comval (Cadr Exp) Status)
+	 (&Clrregs)
+	 (&Attach `(*Abscond 0))
+	 (&Attlbl Lab1)))
+
+(Put 'Errset '&Comerrset 'Compfn)
+
+| Exit locally NIL so no GOs or RETURNs allowed inside
+(De &Comwithinout (Exp Status)
+    (Let ((Lab1 (&Genlbl)) (Y (Assoc 1 Iregs)) Exit)
+	 (Cond [Y (&Store0 (Cadr Y) 1)
+		  (Setq Iregs (Remove Y Iregs))])
+	 (&Comval (Caddr Exp) 1)
+	 (Setq Y (Assoc 2 Iregs))
+	 (Cond [Y (&Store0 (Cadr Y) 2)
+		  (Setq Iregs (Remove Y Iregs))])
+	 (&Lreg 2 `',(Cadddr Exp) Nil 1)
+	 (Cond ((Eq (Car Exp) 'Within)
+		(&Attach `(*Link %within Internal 2)))
+	       (T (&Attach `(*Link %without Internal 2))))
+	 (&Attjmp Lab1)
+	 (&Comval (Cadr Exp) Status)
+	 (&Clrregs)
+	 (&Attach `(*Abscond 0))
+	 (&Attlbl Lab1)))
+
+(Put 'Within '&Comwithinout 'Compfn)
+(Put 'Without '&Comwithinout 'Compfn)
+
+| Note that if a ^Z is typed during a READCONTEXT, a non-local goto may
+| happen that restarts the READCONTEXT.  The second time around, we hae
+| no idea what is going to be in the AC's.  For this reason we do a
+| &clrregs first, to make sure the compiler doesn't assume anything.
+| Similarly, if the user types ^F, exiting may be via the users fix
+| function, and we don't know what that will do the the regs either,
+| so we end with &clrregs.  Of course the return value in 1 is still
+| passed.
+
+| Exit locally NIL so no GOs or RETURNs allowed inside
+(De &Comreadcontext (Exp Status)
+    (Let ((Lab1 (&Genlbl)) Exit)
+	 (&Clrregs)
+	 (&Attach `(*Link %Readcontext Internal 0))
+	 (&Attjmp Lab1)
+	 (&Comval (Cadr Exp) Status)
+	 (&Clrregs)
+	 (&Attach `(*Abscond 0))
+	 (&Attlbl Lab1)))
+
+(Put 'Readcontext '&Comreadcontext 'Compfn)
+
+(Dv Internals (%Errset %Within %Without %Readcontext))
+
+| If we don't recognize the label, then we assume it is a computed label.
+| We compile code to load the value into reg 1, and then go to a place
+| Where we check against each tag in the PROG, and go to the corresponding
+| label.
+
+(De &Comgo (Exp Status)
+   (Cond [(Null Exit) (Cmsg 0 "**** " exp " in forbidden context")]
+	 [T (&Clrregs)
+	    (Let ((Lbl (&Getlbl (Cadr Exp) T)))
+		 (Cond [Lbl (&Attjmp Lbl)]
+		       [T (&Lreg1 (Car (&Comlis (Cdr Exp))) Status)
+			  (Cond [Labelchain (&Attjmp Labelchain)]
+				[T (Setq Labelchain (&Genlbl))
+				   (&Attlbl Labelchain)
+				   (Mapc (F:L (Lbldef)
+					      (&Attach
+					       `(*Jumpe ,(Cadr Lbldef)
+							',(Car Lbldef)))
+					      (&Addjmp Codelist))
+					 Golist)
+				   (&Attach
+				    `(*Link %Undeflabel Internal 1))])]))
+	    (Setq Slst Nil)]))
+
+(Put 'Go '&Comgo 'Compfn)
+
+(De &Comlist (Exp Status)
+    (Prog (M N Fn)
+	  (Setq Exp (Cdr Exp))
+	  (Setq M (Min Maxnargs 5))
+	  (Setq N (Length Exp))
+	  (Cond [(Equal N 0) (&Lreg1 ''Nil Status)]
+		[(Gt N M) (&Comval (&Comlist1 Exp) Status)]
+		[T (&Call (Cond [(Equal N 1) 'Ncons]
+				[(Equal N 2) 'List2]
+				[(Equal N 3) 'List3]
+				[(Equal N 4) 'List4]
+				[T 'List5])
+			  Exp 
+			  Status)])))
+
+(De &Comlist1 (Exp)
+    (Cond [(Null Exp) ''Nil]
+	  [T (List 'Cons (Car Exp) (Cons 'List (Cdr Exp)))]))
+
+(Put 'List '&Comlist 'Compfn)
+
+| &Expmacro expands macros at the top level of an expression
+
+(De &Expmacro (U)
+    (Let (X)
+	(Cond [(Atom U) U]
+	      [(Setq X (Get (Car U) 'Xmacro))
+	       (&Expmacro (Apply X (List U)))]
+	      [(Setq X (Get (Car U) 'Cmacro))
+	       (&Expmacro (Sublis (Pair (Car X) (Cdr U)) (Cadr X)))]
+	      [T U])))
+
+(De &Pamap (U Vars)
+    (Let (Type Temps Wrk Exp Globs Evalglobal Retform Setqs)
+		| We have three types of expression:
+		| Function or Quote that couldn't be an FEXPR.  Here
+		|    we can compile code using AC's directly.  Called
+		|    Internal.
+		| Function or Quote that could be an FEXPR.  Here we
+		|    have to bind to Fluid's, in case the FEXPR tries
+		|    to EVAL one of its args.  Called External.
+		| Not function or Quote.  Since the form isn't constant
+		|    we can't compile it, and just use EVAL.  Called Eval.
+		| We must expand macros first to make sure we see Function
+		|    or quote in things like F:L
+		| Note that we have two different sets of GENSYM'ed
+		|    variables.  The TEMPS are variables that are
+		|    associated directly with AC's 1 to 5.  They can
+		|    be used in Internal calls.  When a real live
+		|    variable is needed (i.e. one that you can pass to
+		|    an FEXPR and have it EVAL), a second set of
+		|    variables, called GLOBS, is generated.  These are
+		|    bound by doing SETQ's to the GLOBS from the WRK's.
+		|    Thus the actual expression inside the loop may be
+		|    any of:
+		|     for constant functions, i.e. quoted with FUNCTION or ':
+		|      (user's-arg --wrks--) for internal calls
+	        |      (user's-arg --globs--) for external calls, with
+		|         SETQ's needed to bind the globs.
+		|     for functions that result from eval'ing the 1st arg:
+	        |      (eval (cons first-arg '(--globs--))) which also needs
+		|         the SETQ's.  We have to call EVAL because the
+		|		first arg can be an EXPR one time and an
+		|		FEXPR the next.  Only EVAL (or APPLY) can
+		|		examine things at runtime to see what they are
+	(Setq Exp (&Expmacro (Cadr U)))
+	(Setq Type (Cond ((Atom Exp) 'Eval)
+			 ((Not (Memq (Car Exp) '(Function Quote))) 'Eval)
+			 ((Consp (Cadr Exp)) 'Internal)
+			 ((Getl (Cadr Exp) '(Pa1Fn Xmacro Cmacro Compfn)) 
+			  'Internal)
+			 ((Eq (&Cfntype (Cadr Exp)) 'Fexpr) 'External)
+			 (T 'Internal)))
+		| For External and Eval types, we need some global var's
+	(Cond ((Memq Type '(External Eval))
+	       (Setq Globs (Mapcar (F:l (X) (Setq X (Gensym))
+					    (Flag (List X) 'Fluid)
+					    X)
+				   (Cddr U)))
+	       (Setq Vars (Append Globs Vars))))
+		| For Eval types, we need a special global for the form
+		| to eval
+	(Cond ((Eq Type 'Eval) (Flag (List (Setq Evalglobal (Gensym)))
+				     'Fluid)))
+		| Now we compute the form we will give to Pass2
+	(Setq Retform	
+            (List
+	    	(Car U)	
+		    | Gen temp variables, one per argument
+	        (Setq Temps (Mapcar (F:l (X) (&Genname)) (Cddr U))) 
+		    | Now gen what we will proc, either TEMPS or their CAR's
+	        (Setq Wrk (Cond [(Memq (Car U) '(Map Mapcon Maplist)) Temps]
+			        [T (Mapcar (F:l (X) (List 'Car X)) Temps)]))
+		    | Finally, the actual thing to be EVAL'ed in the loop
+    	        (Cond [(Eq Type 'Internal)
+		       (&Pa1 (Cons (Cadr Exp) Wrk) (Append Temps Vars))]
+		      [T(Setq Setqs (Mapcar 'List3 '(Setq setq setq setq setq)
+						    Globs
+						    Wrk))
+			 (Setq Retform (Cond [(Eq Type 'External)
+					      (Cons (Cadr Exp) Globs)]
+					     [T (List 'Eval Evalglobal)]))
+			 (&Pa1 (Cons 'Progn (Append Setqs (List Retform)))
+			       (Append Temps Vars))])
+		    | And the arguments
+	        (&Palis (Cddr U) Vars)))
+	    |If the type is Eval, we have to make up the form to Eval
+	(Cond ((Eq Type 'Eval)
+	       (List 'Progn
+		      (&Pa1 (List 'Setq Evalglobal
+				  (List 'Cons Exp 
+					(List 'Quote Globs)))
+			    Vars)
+		      Retform))
+	      (T Retform))))
+
+(Put 'Map '&Pamap 'Pa1fn)
+
+(Put 'Mapc '&Pamap 'Pa1fn)
+
+(Put 'Mapcan '&Pamap 'Pa1fn)
+
+(Put 'Mapcar '&Pamap 'Pa1fn)
+
+(Put 'Mapcon '&Pamap 'Pa1fn)
+
+(Put 'Maplist '&Pamap 'Pa1fn)
+
+(Put 'Some '&Pamap 'Pa1fn)
+
+(Put 'Every '&Pamap 'Pa1fn)
+
+(Put 'Subset '&Pamap 'Pa1fn)
+
+| Exp is (MAPxxx Vars Wrk Expression-in-loop Body)
+
+(De &Commap (U Status)
+    (Prog (Body Lab1 Lab2 Lab2a Lab3 Lab4 Lab5 Tmp Mtype Result Slst1
+               Vars Var Wrk Exp)
+	  (Setq Vars (Cadr U))
+	  (Setq Wrk (Caddr U))
+	  (Setq Exp (Cadddr U))
+	  (Setq Body (Car (Cddddr U)))
+	  (Setq Lab1 (&Genlbl))
+	  (Setq Lab2 (&Genlbl))
+	  (Setq Lab2a (&Genlbl))
+	  (Setq Mtype
+		(Cond [(Memq (Car U) '(Every Some)) 
+		       (Progn (Setq Lab4 (&Genlbl)) (Car U))]
+		      [(Eq (Car U) 'Subset)
+		       (Progn (Setq Lab3 (&Genlbl)) 'Subset)]
+		      [(Memq (Car U) '(Mapcar Maplist)) 'Cons]
+		      [(Memq (Car U) '(Mapcan Mapcon))
+		       (Progn (Setq Lab3 (&Genlbl)) 'Nconc)]
+		      [T Nil]))
+	  (&Clrregs)
+	  (Cond [Mtype (&Frame (Setq Result (&Genname)))
+		       (Cond [(Memq Mtype '(Cons Subset))
+			      (&Store0 Result Nil)])])
+	  (Cond [(Eq Mtype 'Nconc)
+		      (&Frame (Setq Tmp (&Genname)))
+		      (&Comval '(Ncons 'Nil) 1)
+		      (&Store0 Result 1)
+		      (&Store0 Tmp 1)])
+	  (Mapc '&Frame Vars)
+	  (Setq Var (Car (Last Vars)))
+	  (&Loadargs (&Comlis Body) 1)
+	  (Setq Regs (Mapcar 'List '(1 2 3 4 5) Vars))
+	  (&Attjmp Lab2)
+	  (&Attlbl Lab1)
+	  (Mapc '&Store0 Vars '(1 2 3 4 5))
+	  (Setq Slst1 Slst)
+	  (&Comval Exp (Cond [Mtype 1] [T 3]))
+	  (Selectq Mtype   [Subset (&Attach (List '*Jumpnil (Car Lab3) 1))
+				   (&Addjmp Codelist)
+			           (&Lreg1 `(Car ,(Car Vars)) 1)
+				   (&Lreg 2 Result Nil 1)
+				   (&Attach '(*Link Cons Expr 2))
+				   (&Store0 Result 1)
+				   (&Attlbl Lab3)]
+			    [Nconc (&Attach (List '*Jumpnil (Car Lab3) 1))
+				   (&Addjmp Codelist)
+				   (&Attach '(*Load 2 1))
+				   (&Lreg1 Tmp 1)
+				   (&Store0 Tmp 2)
+				   (&Attach '(*Link *Nconc Expr 2))
+				   (&Attlbl Lab3)]
+			[Some (Setq Lab5 (&Genlbl))
+			      (&Attach (List '*Jumpnil (Car Lab5) 1))
+			      (&Addjmp Codelist)
+			      (&Lreg1 (Car Vars) Status)
+			      (&Attjmp Lab4)]
+		       [Every (&Attach (List '*Jumpnil (Car Lab4) 1))
+			      (&Addjmp Codelist)]
+			[Cons   (&Lreg 2 Result Nil 1)
+				(&Attach '(*Link Cons Expr 2))
+				(&Store0 Result 1)]
+			nil)
+          (Cond (Mtype (Setq Regs (List (Cons 1 Nil)))))
+	  (Setq Slst (Xn Slst Slst1))
+	  (Cond (Lab5 (&Attlbl Lab5)))
+	  (Mapxy '(1 2 3 4 5) Vars (&Lodreg X `(Cdr ,Y)))
+	  (&Attlbl Lab2)
+	  (Mapxy (Cdr Vars) '(2 3 4 5)
+		 (&Attach `(*Jumpnil ,(Car Lab2a) ,Y))
+		 (&Addjmp Codelist))
+	  (&Attach `(*Jumpt ,(Car Lab1) 1))
+	  (&Addjmp Codelist)
+	  (&Attlbl Lab2a)
+	  (Cond [Lab4
+		 (Cond ((Eq Mtype 'Some)
+		        (&Comval ''Nil Status)
+		        (Setq Regs `((1 'Nil))))
+		       ((Eq Mtype 'Every)
+			(&Comval ''T Status)
+			(Setq Regs `((1 'T)))))
+		 (&Attlbl Lab4)])
+	  (Selectq Mtype
+		((Subset Cons) (&Comval (List 'Dreverse Result) 1))
+	        (Nconc (&Comval (List 'Cdr Result) 1 ))
+		(Nil (&Comval ''Nil Status) (Setq Regs `((1 'Nil))))
+		NIL)))
+
+(De Xn (U V)
+    (Cond [(Null U) Nil]
+	  [(Member (Car U) V) (Cons (Car U) (Xn (Cdr U) (Remove (Car U) V)))]
+	  [T (Xn (Cdr U) V)]))
+
+(Put 'Map '&Commap 'Compfn)
+
+(Put 'Mapc '&Commap 'Compfn)
+
+(Put 'Mapcan '&Commap 'Compfn)
+
+(Put 'Mapcar '&Commap 'Compfn)
+
+(Put 'Mapcon '&Commap 'Compfn)
+
+(Put 'Maplist '&Commap 'Compfn)
+
+(Put 'Some '&Commap 'Compfn)
+
+(Put 'Every '&Commap 'Compfn)
+
+(Put 'Subset '&Commap 'Compfn)
+
+(De &Comprog (Exp Status)
+    (Prog (Alsts Golist Labelchain Pg Proglis Exit I)
+	  (Setq Proglis (Cadr Exp))
+	  (Setq Exp (Cddr Exp))
+	  (Setq Exit (&Genlbl))
+	  (Setq Pg (&Remvarl Proglis))
+	  (Mapc (F:l (X) (&Frame X)) Proglis)
+	  (Setq Alsts (&Freebind Proglis Nil))
+	  (Mapc (F:l (X) (Cond [(Not (Nonlocal X)) (&Store0 X Nil)])) Proglis)
+	  (Mapc (F:l (X)
+		     (Cond [(Atom X)
+			    (Setq Golist (Cons (Cons X (&Genlbl)) Golist))]))
+		Exp)
+	  (While Exp 
+		 (Cond [(Atom (Car Exp))
+			(&Clrregs)
+			(&Attlbl (&Getlbl (Car Exp)))
+			(Setq Regs (List (Cons 1 Nil)))]
+		       [T (&Comval (Car Exp) (Cond [(Ge Status 2) 4] [T 3]))])
+		 (Cond [(And [Null (Cdr Exp)]
+			     [Lt Status 2]
+			     [Or [Atom (Car Exp)]
+				 [Not (Memq (Caar Exp) '(Go Return))]])
+			(Setq Exp (List '(Return 'Nil)))]
+		       [T (Setq Exp (Cdr Exp))]))
+	  (&Attlbl Exit)
+	  (Cond [(Cdr (&Findlbl Exit)) (Setq Regs (List (Cons 1 Nil)))])
+	  (&Freerst Alsts Status)
+	  (&Rstvarl Proglis Pg)))
+
+(Put 'Prog '&Comprog 'Compfn)
+
+(De &Remvarl (Vars) (Mapcar (F:l (X) (&Remvar X)) Vars))
+
+(De &Remvar (X) (&Remstores X) (&Protect X))
+
+(De &Remstores (X)
+    (Mapc (F:l (Y)
+	       (Cond [(Eq X (Cadr Y))
+		      (&Store0 (Cadr Y) (Car Y))
+		      (Setq Iregs (Remove Y Iregs))]))
+	  Iregs)
+    (Mapc (F:l (Y) (While (Member X (Cdr Y)) (Rplacd Y (&Deleq X (Cdr Y)))))
+	  Regs)
+    Nil)
+
+(De &Protect (U)
+    (Prog (X)
+	  (Cond [(Setq X (Assoc U Slst)) (Setq Slst (&Deleq X Slst))])
+	  (Return X)))
+
+(De &Rstvarl (Vars Lst)
+    (Mapc (F:l (X)
+	       (&Remstores X)
+	       (&Clrstr X)
+	       (&Unprotect (Car Lst))
+	       (Setq Lst (Cdr Lst)))
+	  Vars))
+
+(De &Unprotect (Val) (Cond [Val (Setq Slst (Cons Val Slst))]))
+
+(De &Comprogn (Exp Status)
+    (Prog Nil
+	  (Setq Exp (Cdr Exp))
+	  (Cond [(Null Exp) (Return Nil)])
+	  (While (Cdr Exp)
+		 (&Comval (Car Exp) (Cond [(Lt Status 2) 2] [T Status]))
+		 (Setq Exp (Cdr Exp)))
+	  (&Comval (Car Exp) Status)))
+
+(Put 'Progn '&Comprogn 'Compfn)
+
+(De &Comprog1 (Exp Status)
+    (Let ((Val (&Genname)) (Stat (Cond [(Lt Status 2) 2] [T Status])))
+	 (Setq Exp (Cdr Exp))
+	 (&Frame Val)
+	 (&Comval (Car Exp) 1)
+	 (&Store0 Val 1)
+	 (Mapx (Cdr Exp) (&Comval X Stat))
+	 (&Lreg1 Val Status)))
+
+(Put 'Prog1 '&Comprog1 'Compfn)
+
+(De &Comreturn (Exp Status)
+   (Cond [(Null Exit) (Cmsg 0 "**** " exp " in forbidden context")]
+	 [T (Cond [(Or [Lt Status 4] [Not (&Anyreg (Cadr Exp) Nil)])
+		   (&Lreg1 (Car (&Comlis (List (Cadr Exp)))) Status)])
+	    (&Attjmp Exit)]))
+
+(Put 'Return '&Comreturn 'Compfn)
+
+(De &Comsetq (Exp Status)
+    (Prog (X)
+	  (Setq Exp (Cdr Exp))
+	  (Cond [(And [Gt Status 1]
+		      [Or [Null (Cadr Exp)] [Equal (Cadr Exp) ''Nil]])
+		 (&Store2 (Car Exp) Nil)]
+		[T (&Comval (Cadr Exp) 1)
+		   (&Store2 (Car Exp) 1)
+		   (Cond [(Setq X (&Rassoc (Car Exp) Iregs))
+			  (Setq Iregs (Remove X Iregs))])
+		   (Setq Regs
+			 (Cons (Cons 1 (Cons (Car Exp) (Cdar Regs)))
+			       (Cdr Regs)))])))
+
+(De &Remsetvar (U V)
+    (Cond [(Null V) Nil]
+	  [T (Cons (Cons (Caar V) (&Rems1 U (Cdar V))) (&Remsetvar U (Cdr V)))]
+     ))
+
+(De &Rems1 (U V)
+    (Cond [(Null V) Nil]
+	  [(Smemq U (Car V)) (&Rems1 U (Cdr V))]
+	  [T (Cons (Car V) (&Rems1 U (Cdr V)))]))
+
+(De Smemq (U V)
+    (Cond [(Atom V) (Eq U V)]
+	  [(Eq (Car V) 'Quote) Nil]
+	  [T (Or [Smemq U (Car V)] [Smemq U (Cdr V)])]))
+
+(De &Store2 (U V)
+    (Prog (Vtype)
+	  (Setq Regs (&Remsetvar U Regs))
+	  (Cond [(Setq Vtype (Nonlocal U))
+		 (&Attach (List '*Store V `(Fluid ,Vtype)))]
+		[(Not (Assoc U Stomap))
+		 (&Attach (List '*Store V (Mknonlocal1 U)))]
+		[T (&Store0 U V)])))
+
+(Put 'Setq '&Comsetq 'Compfn)
+
+(De &Comeq (Exp Labl)
+    (Prog (U V W)
+	  (Setq U (Cadr Exp))
+	  (Setq V (Caddr Exp))
+	  (Cond [(And (Member U (Cdar Regs)) (&Anyreg V Nil)) (Setq W V)]
+		[(And (Member V (Cdar Regs)) (&Anyreg U (List V))) (Setq W U)]
+		[(&Anyreg V Nil) (&Comval U 1) (Setq W V)]
+		[(&Anyreg U (List V)) (&Comval V 1) (Setq W U)]
+		[T (Setq U (&Comlis (Cdr Exp))) (Setq W (Cadr U))])
+	  (setq w (Cond [(&Locatep W) (&Locate W)]
+			[(&Regrefp (Car (Consp W))) (&Lreg 2 (Cadr W) Nil 1)
+						   `((,(Car W) 2))]
+			[T (&Lreg 2 W Nil 1) '(2)]))
+	  (&Attach `(,(If Switch '*Jumpe '*Jumpn) ,(Car Labl) ,,W))
+	  (Setq Iregs1 Iregs)
+	  (Setq Regs1 Regs)
+	  (&Addjmp Codelist)))
+
+(Put 'Eq '&Comeq 'Comtst)
+
+(De &Testfn (Exp Labl)
+    (Prog (X)
+	  (Cond [(Not (Setq X (&Rassoc (Cadr Exp) Regs)))
+		 (&Comval (Cadr Exp) 1)])
+	  (&Clrregs)
+	  (&Attach (List (Cond [Switch '*Jumpc] [T '*Jumpnc])
+			 (Car Labl)
+			 (Cond [X (Car X)] [T 1])
+			 (Car Exp)))
+	  (Setq Regs1 Regs)
+	  (&Addjmp Codelist)))
+
+(Put 'Atom '&Testfn 'Comtst)
+
+(Put 'Litatom '&Testfn 'Comtst)
+
+(Put 'Consp '&Testfn 'Comtst)
+
+(De &Memlis (U V)
+    (And V [Or [&Memb U (Car V)] [&Memlis U (Cdr V)]]))
+
+(De &Memb (U V) (Cond [(Atom V) (Eq U V)] [T (&Memb U (Cadr V))]))
+
+(De &Rassoc (U V)
+    (Cond [(Null V) Nil]
+	  [(Member U (Cdar V)) (Car V)]
+	  [T (&Rassoc U (Cdr V))]))
+
+(De &Repasc (Reg U V)
+    (Cond [(Null V) (List (List Reg U))]
+	  [(Equal Reg (Caar V)) (Cons (List Reg U) (Cdr V))]
+	  [T (Cons (Car V) (&Repasc Reg U (Cdr V)))]))
+
+(De &Clrregs Nil
+    (While Iregs 
+	   (&Store0 (Cadar Iregs) (Caar Iregs))
+	   (Setq Iregs (Cdr Iregs))))
+
+(De &Cfntype (Fn)
+    (Cond ((Car (Get Fn 'Cfntype)))
+	  ((Litatom Fn) (Setq Unknownlist (Enter Fn Unknownlist)) 'Unknown)
+	  ('Unknown)))
+
+(De &Cfnargs (Fn) (Cadr (Get Fn 'Cfntype)))
+
+(nill  This is for Pass0
+
+(De &Fixfntype (Exp)
+    (Cond [(Atom Exp)]
+	  [(Consp (Car Exp))]
+	  [(Not (Litatom (Car Exp)))
+	   (Cmsg 0 "**** Illegal object in function position: " (Car Exp))]
+	  [(Get (Car Exp) 'Xmacro) (Put (Car Exp) '(Macro 1) 'Cfntype)]
+	  [(Get (Car Exp) 'Cfntype)]
+	  [(Setq Unknownlist (Enter (Car Exp) Unknownlist))
+	   (Put (Car Exp) (List 'Unknown (Length (Cdr Exp))) 'Cfntype)]))
+
+)  | End of code for Pass 0
+
+(De &Genlbl Nil
+    (Prog (L)
+	  (Setq L (Gensym))
+	  (Setq Lblist (Cons (List L) Lblist))
+	  (Return (List L))))
+
+(De &Getlbl (Labl OKfail)
+    (Prog (X)
+	  (Setq X (Assoc Labl Golist))
+	  (And (Null X) (Not OKfail)
+	       (Cmsg 0 "***** " Labl " - Missing Label -" T))
+	  (Return (Cdr X))))
+
+(De &Findlbl (Lblst) (Or (Assoc (Car Lblst) Lblist) (Ncons Nil) ))
+
+(De &Rechain (Olbl Nlbl)
+    (Prog (X Y Uses)
+	  (Setq X (&Findlbl Olbl))
+	  (Setq Y (&Findlbl Nlbl))
+	  (Rplaca Olbl (Car Nlbl))
+	  (Setq Uses (Cdr X))
+	  (Rplacd X Nil)
+	  (Rplacd Y (Append Uses (Cdr Y)))
+	  (Mapc (F:l (X) (Rplaca (Cdr X) (Car Nlbl))) Uses)))
+
+(De &Moveup (U)
+    (Cond [(Eq (Caadr U) '*Jump)
+	   (Setq Jmplist (&Deleq (Cdr U) Jmplist))
+	   (Rplacw U (Cdr U))
+	   (Setq Jmplist (Cons U Jmplist))]
+	  [T (Rplacw U (Cdr U))]))
+
+(De &Attlbl (Lbl)
+    (Cond [(Eq (Caar Codelist) '*Lbl) (&Rechain Lbl (Cdar Codelist))]
+	  [T (&Attach (Cons '*Lbl Lbl))]))
+
+(De &Attjmp (Lbl)
+    (Prog Nil
+	  (Cond [(Eq (Caar Codelist) '*Lbl)
+		 (&Rechain (Cdar Codelist) Lbl)
+		 (Setq Codelist (Cdr Codelist))])
+	  (Cond [(&Transferp (Car Codelist)) (Return Nil)])
+	  (&Attach (Cons '*Jump Lbl))
+	  (&Addjmp Codelist)))
+
+(De &Transferp (X)
+    (Get (Cond [(Eq (Car X) '*Link) (Cadr X)] [T (Car X)]) 'Transfer))
+
+(De &Addjmp (Clist)
+    (Prog (X)
+	  (Setq X (&Findlbl (Cdar Clist)))
+	  (Rplacd X (Cons (Car Clist) (Cdr X)))
+	  (Setq Jmplist (Cons Clist Jmplist))))
+
+(De &Remjmp (Clist)
+    (Prog (X)
+	  (Setq X (&Findlbl (Cdar Clist)))
+	  (Rplacd X (&Deleq (Car Clist) (Cdr X)))
+	  (Setq Jmplist (&Deleq Clist Jmplist))
+	  (&Moveup Clist)))
+
+(De &Deleq (U V)
+    (Cond [(Null V) Nil]
+	  [(Eq U (Car V)) (Cdr V)]
+	  [T (Cons (Car V) (&Deleq U (Cdr V)))]))
+
+(De &Frame (U)
+    (Prog (Z)
+	  (Setq Stomap
+		(Cons (List U (Setq Z (-I (Cadar Stomap)))) Stomap))
+	  (Cond [(Lt Z (Car Llngth)) (Rplaca Llngth Z)])))
+
+(De &Getfrm (U)
+    ((Lambda (X)
+      (Cond [X (Cdr X)] [T (Cmsg 0 "*****Compiler Error: Lost Var: " U T)]))
+     (Assoc U Stomap)))
+
+(De &Getffrm (U)
+    (Prog (X)
+	  (Setq X (&Getfrm U))
+	  (Setq Freelst (Cons X Freelst))
+	  (Return X)))
+
+(De &Pass3 Nil
+    (Prog (Flagg)
+	  (Mapc (F:l (J)
+		     (Setq Stlst (&Deleq (Cadr J) Stlst))
+		     (Rplaca (Cadr J) '*Noop))
+		Slst)
+	  (&Fixchains)
+	  (&Fixlinks)
+	  (&Fixfrm)
+	  (&Attlbl Exit)
+	  (Cond [Flagg (Cond [(And [Not *Nolinke]
+				   [Eq (Caar Codelist) '*Lbl]
+				   [Eq (Caadr Codelist) '*Linke])
+			      (Rplaca (Cdr Codelist)
+				      (List '*Link
+					    (Cadadr Codelist)
+					    (Cadr (Cdadr Codelist))
+					    (Caddr (Cdadr Codelist))))])
+		       (&Attach (Cons '*Abscond Llngth))])
+	  (&Peepholeopt)
+	  (&Fixrest)))
+
+(De &Fixchains Nil
+    (Prog (Ejmps Ejmps1 P Q)
+	  (Cond [(Not (Equal (Car Codelist) (Cons '*Lbl Exit)))
+		 (&Attlbl Exit)])
+	  (Setq Codelist (Cdr Codelist))
+	  (Cond [(Not (Equal (Car Codelist) (Cons '*Jump Exit)))
+		 (&Attjmp Exit)])
+	  (Setq Ejmps (Reverse Jmplist))
+	  (While Ejmps 
+		 (Setq P (Car Ejmps))
+		 (Setq Ejmps (Cdr Ejmps))
+		 (Cond [(Eq (Caar P) '*Jump)
+			(Setq Ejmps1 Ejmps)
+			(While Ejmps1 
+			       (Cond [(And [Equal (Car P) (Caar Ejmps1)]
+					   [Equal (Cadr P) (Cadar Ejmps1)])
+				      (&Remjmp P)
+				      (&Fixchn P (Cdar Ejmps1))
+				      (Setq Ejmps1 Nil)]
+				     [T (Setq Ejmps1 (Cdr Ejmps1))]))])
+		 Nil)))
+
+(De &Fixlinks Nil
+ (Prog (Ejmps P Q)
+       (Setq Ejmps Jmplist)
+       (Cond [(Not *Nolinke)
+	      (While Ejmps 
+		     (Prog Nil
+			   (Setq P (Car Ejmps))
+			   (Setq Q (Cdr P))
+			   (Setq Ejmps (Cdr Ejmps))
+			   (Cond [(Not (Eq (Cadar P) (Car Exit))) (Return Nil)]
+				 [(Or [Not (Eq (Caar P) '*Jump)]
+				      [Not (Eq (Caar Q) '*Link)]
+				      [Memq (Cadar Q)
+					    Internals])
+				  (Return (Setq Flagg T))])
+			   (Rplacw (Car Q)
+				   `(*Linke ,(Cadar Q) ,(Caddar Q)
+					    ,(Cadr (Cddar Q)) ,,Llngth))
+			   (&Remjmp P)))]
+	     [T (Setq Flagg T)])))
+
+(De &Findblk (U Lbl)
+    (Cond [(Null (Cdr U)) Nil]
+	  [(And [Eq (Caadr U) '*Lbl] [&Transferp (Caddr U)]) U]
+	  [(And [Get (Caadr U) 'Negjmp] [Eq (Cadadr U) Lbl]) U]
+	  [T (&Findblk (Cdr U) Lbl)]))
+
+(Put '*Noop '&Moveup 'Optfn)
+
+(Put '*Lbl '&Lblopt 'Optfn)
+
+(De &Lblopt (U)
+    (Prog (Z)
+	  (Cond [(Eq (Cadar U) (Cadadr U)) (Return (&Remjmp (Cdr U)))]
+		[(And [Eq (Caadr U) '*Jump]
+		      [Setq Z (Get (Caaddr U) 'Negjmp)]
+		      [Eq (Cadar U) (Cadr (Caddr U))])
+		 (Return (Progn (Setq Z (Cons Z (Cons (Cadadr U)
+						      (Cddr (Caddr U)))))
+				(&Remjmp (Cdr U))
+				(&Remjmp (Cdr U))
+				(Rplacd U (Cons Z (Cons (Cadr U) (Cddr U))))
+				(&Addjmp (Cdr U))
+				T))]
+		[T (Return Nil)])))
+
+(De &Peepholeopt Nil
+    (Prog (X Z)
+	  (Setq Z Codelist)
+	  (While Z 
+		 (Cond [(Or [Not (Setq X (Get (Caar Z) 'Optfn))]
+			    [Not (Apply X (List Z))])
+			(Setq Z (Cdr Z))]))))
+
+(De &Fixrest Nil
+ (Prog (Labs Tlabs X Y Z)
+       (While Codelist 
+	(Cond
+	 [(Eq (Caar Codelist) '*Lbl)
+	  (&Lblopt Codelist)
+	  (Cond [(Cdr (Setq Z (&Findlbl (Cdar Codelist))))
+		 (Setq Y (Cons (Car Codelist) Y))
+		 (Cond [(And [Null (Cddr Z)]
+			     [&Transferp (Cadr Z)]
+			     [Eq (Caadr Y) '*Load]
+			     [&Noloadp (Cdadr Y)
+				       (Cdr (Assoc (Cadr Z) Jmplist))])
+			(Cond [(Not (&Noloadp (Cdadr Y) (Cdr Codelist)))
+			       (Rplacw (Cdr Codelist)
+				       (Cons (Cadr Y)
+					     (Cons (Cadr Codelist)
+						   (Cddr Codelist))))])
+			(Rplacw (Cdr Y) (Cddr Y))]
+		       [T (Cond [(And [Null (Cddr Z)]
+				      [Eq (Caadr Codelist) '*Jump]
+				      [Get (Caadr Z) 'Negjmp])
+				 (Setq Labs (Cons (Cons (Cadr Z) Y) Labs))])
+			  (Cond [(&Transferp (Cadr Codelist))
+				 (Setq Tlabs (Cons (Cons (Cadar Y) Y) Tlabs))])
+			])])]
+	 [(And [Get (Caar Codelist) 'Negjmp]
+	       [Setq Z (Assoc (Car Codelist) Labs)])
+	  (Setq X (Car Codelist))
+	  (Setq Codelist (Cdr Codelist))
+	  (Setq Z (Cddr Z))
+	  (While (And [Equal (Car Y) (Car Z)]
+		      [Or [Eq (Caar Y) '*Store]
+			  [And [Eq (Caar Y) '*Load] [Not (Equal (Cadar Y) 1)]]]
+		  )
+		 (Setq Codelist (Cons (Car Y) Codelist))
+		 (Rplacw Z (Cons (Cadr Z) (Cddr Z)))
+		 (Setq Y (Cdr Y)))
+	  (Setq Codelist (Cons X Codelist))
+	  (Setq Y (Cons X Y))]
+	 [(And [Eq (Caar Codelist) '*Jump]
+	       [Setq Z (Assoc (Cadar Codelist) Tlabs)]
+	       [Setq X
+		     (&Findblk (Cdr Codelist)
+			       (Cond [(Eq (Caar Y) '*Lbl) (Cadar Y)] [T Nil]))]
+	   )
+	  (Prog (W)
+		(Cond
+		 [(Not (Eq (Caadr X) '*Lbl))
+		  (Cond [(Not (Eq (Caar X) '*Lbl))
+			 (Setq X
+			       (Cdr (Rplacd X 
+					    (Cons (Cons '*Lbl (&Genlbl))
+						  (Cdr X)))))])
+		  (Setq W
+			(Cons (Get (Caadr X) 'Negjmp)
+			      (Cons (Cadar X) (Cddadr X))))
+		  (&Remjmp (Cdr X))
+		  (Rplacd X (Cons W (Cons (Cadr X) (Cddr X))))
+		  (&Addjmp (Cdr X))]
+		 [T (Setq X (Cdr X))])
+		(Setq W Nil)
+		(Until (Eq Y (Cdr Z))
+		       (Setq W (Cons (Car Y) W))
+		       (Setq Y (Cdr Y)))
+		(Rplacd X (Nconc W (Cdr X)))
+		(&Remjmp Codelist)
+		(Setq Tlabs Nil)
+		(Setq Codelist (Cons Nil (Cons (Car Y) Codelist)))
+		(Setq Y (Cdr Y)))]
+	 [T (Setq Y (Cons (Car Codelist) Y))])
+	(Setq Codelist (Cdr Codelist)))
+       (Setq Codelist Y)))
+
+(De &Noloadp (Args Instrs)
+    (And [Atom (Cadr Args)]
+	 [Or [And [Eq (Caar Instrs) '*Load] [Equal (Cdar Instrs) Args]]
+	     [And [Eq (Caar Instrs) '*Store]
+		  [Or [Equal (Cdar Instrs) Args]
+		      [And [Not (Equal (Caddar Instrs) (Cadr Args))]
+			   [&Noloadp Args (Cdr Instrs)]]]]]))
+
+(De &Fixchn (U V)
+    (Prog (X)
+	  (While (Equal (Car U) (Car V)) (&Moveup U) (Setq V (Cdr V)))
+	  (Setq X (&Genlbl))
+	  (Cond [(Eq (Caar V) '*Lbl) (&Rechain X (Cdar V))]
+		[T (Rplacw V (Cons (Cons '*Lbl X) (Cons (Car V) (Cdr V))))])
+	  (Cond [(Eq (Caar U) '*Lbl) (&Rechain (Cdar U) X) (&Moveup U)])
+	  (Cond [(Eq (Caar U) '*Jump) (Return Nil)])
+	  (Rplacw U (Cons (Cons '*Jump X) (Cons (Car U) (Cdr U))))
+	  (&Addjmp U)))
+
+(De &Fixfrm Nil
+    (Prog (Holes Lst X Y Z N)
+	  (Cond [(And [Null Stlst] [Null Freelst]) (Return (Rplaca Llngth 1))])
+	  (Setq N 0)
+	  (While (Not (Lt N (Car Llngth)))
+		 (Setq Y Nil)
+		 (Mapc (F:l (Lst)
+			    (Cond [(Equal N (Caddr Lst))
+				   (Setq Y (Cons (Cddr Lst) Y))]))
+		       Stlst)
+		 (Mapc (F:l (Lst)
+			    (Cond [(Equal N (Car Lst)) (Setq Y (Cons Lst Y))]))
+		       Freelst)
+		 (Cond [(Null Y) (Setq Holes (Cons N Holes))]
+		       [T (Setq Z (Cons (Cons N Y) Z))])
+		 (Setq N (-I N)))
+	  (Setq Y Z)
+	  (Cond [(Gt (Caar Z) (Car Llngth)) (Rplaca Llngth (Caar Z))])
+	  (While Holes 
+		 (While (And Holes [Lt (Car Holes) (Car Llngth)])
+			(Setq Holes (Cdr Holes)))
+		 (Cond [Holes (Setq Holes (Dreverse Holes))
+			      (Mapc (F:l (X) (Rplaca X (Car Holes))) (Cdar Z))
+			      (Rplaca Llngth 
+				      (Cond [(Or [Null (Cdr Z)]
+						 [Lt (Car Holes) (Caadr Z)])
+					     (Car Holes)]
+					    [T (Caadr Z)]))
+			      (Setq Holes (Dreverse (Cdr Holes)))
+			      (Setq Z (Cdr Z))]))
+	  (Setq N (Cond [(Lt Narg 3) 3] [T (+I Narg)]))
+	  (Cond [(Or Freelst 
+		     [Null (&Regp Codelist)]
+		     [Lt (Car Llngth) (- N Maxnargs)])
+		 (Return Nil)])
+	  (Mapc (F:l (X)
+		 (Rplacw X (List '*Load
+				 (- N (Caddr X))
+				 (Cond [(Null (Cadr X)) ''Nil] [T (Cadr X)]))))
+		Stlst)
+	  (While Y (Mapc (F:l (X)
+			    (And [Not (Gt (Car X) 0)]
+				 [Rplaca X (- N (Car X))]))
+			 (Cdar Y))
+		 (Setq Y (Cdr Y)))
+	  (Rplaca Llngth 1)))
+
+(De &Regp (U)
+    (Cond [(Null (Cdr U)) T]
+	  [(And [Memq (Caar U) '(*Load *Store)]
+		[Numberp (Cadar U)]
+		[Gt (Cadar U) 2])
+	   Nil]
+	  [(And [Get (Caadr U) 'Unknownuse]
+		[Not (Or [And [Litatom (Cadadr U)]
+			      [Or [Get (Cadadr U) 'Onereg]
+				  [Get (Cadadr U) 'Tworeg]]]
+			 [Equal (Car U) (Cons '*Jump Exit)])])
+	   Nil]
+	  [T (&Regp (Cdr U))]))
+
+(Flag '(*Link *Linke) 'Unknownuse)
+
+(Put '*Jumpn '*Jumpe 'Negjmp)
+
+(Put '*Jumpe '*Jumpn 'Negjmp)
+
+(Put '*Jumpnil '*Jumpt 'Negjmp)
+
+(Put '*Jumpt '*Jumpnil 'Negjmp)
+
+(Put '*Jumpc '*Jumpnc 'Negjmp)
+
+(Put '*Jumpnc '*Jumpc 'Negjmp)
+
+(De &Paplus2 (U Vars)
+    (Cond [(Equal (Caddr U) 1) (List 'Add1 (&Pa1 (Cadr U) Vars))]
+	  [(Equal (Cadr U) 1) (List 'Add1 (&Pa1 (Caddr U) Vars))]
+	  [T (Cons '*Plus (&Palis (Cdr U) Vars))]))
+
+(Put '*Plus '&Paplus2 'Pa1fn)
+
+(De &Padiff (U Vars)
+    (Cond [(Equal (Caddr U) 1) (List 'Sub1 (&Pa1 (Cadr U) Vars))]
+	  [T (Cons '*Dif (&Palis (Cdr U) Vars))]))
+
+(Put '*Dif '&Padiff 'Pa1fn)
+
+(De &Paminus (U Vars)
+    (Cond [(And [consp (setq u (&Pa1 (Cadr U) Vars))]
+		[Eq (Car u) 'Quote]
+		[Numberp (Cadr U)])
+	   `',(Minus (Cadr U))]
+	  [T (List 'Minus U)]))
+
+(Put 'Minus '&Paminus 'Pa1fn)
+
+| this is the package that produces
+|  .FLAP files (elisp fastloader files)
+
+(special codelist codewords constants constlist gcodelis filnam
+	 vconstlist labelist fns-called fns-defned extras stkoffset)
+
+(df lapin (filnam)
+    (let ((codewords 0) gcodelis constlist vconstlist fns-called 
+	  (fns-defned 0) labelist extras xx)
+	 (within t (openf (lapnam filnam) '(old in))
+		 (until nil (setq xx (read))
+			(cond [(atom xx)]
+			      [(eq 'elap (car xx))
+			       (if (atom (cadr xx))
+				   (accumulap (cddr xx))
+				   (accumulap (cdr xx)))]
+			      [t (push extras xx)])))
+	 (setq filnam (flapnam filnam))
+	 (flapaway)))
+
+(de flapaway (filnam)
+	 (setq gcodelis (dreverse gcodelis))
+	 (setq constlist (dreverse constlist))
+	 (setq vconstlist (dreverse vconstlist))
+	 (setq fns-called (dreverse fns-called))
+	 (setq extras (dreverse extras))
+	 (finalap))
+
+|  the format of the output file is as follows:
+|	in ascii, the following:
+| SIZE: #of-linkwds #of-codewds
+| CONSTANTS: #of-constants <constant forms>
+| VARIABLES: #of-variables <variable names>
+| FUNCTIONS: #of-functions <function names>
+| BINARY:
+|	then binary, ie 36-bit words:
+|   666   this as the value of a word as a synchronizer
+|   #of-codewords   as a binary value this time
+| the code for the functions. the left half of each word is absolute.
+| the right half is cnnnnn octal, where c is a code:
+| c = 0 or 7  the right half is absolute, leave untouched
+(dv %contyp 100000q)     |     1  rh becomes the nnnnn'th constant
+(dv %vartyp 200000q)     |     2  rh is nnnnn'th variable
+(dv %funtyp 300000q)     |     3  rh is nnnnn'th function
+(dv %inttyp 400000q)     |     4  rh is nnnnn'th internal entry
+(dv %ad-typ 500000q)     |     5  rh is addr of this word - nnnnn
+(dv %ad+typ 600000q)     |     6  rh is addr of this word + nnnnn
+|   minus number of wds of above to be translated
+|| Note - at the moment #of-fns-defined is always 0, and thus there are
+|| no words for the function defn.  this is because functions are now defined
+|| in the text by calls to %FLAP-ENTRY.  This is slower the putting the
+|| entries here, but allows odd cases where the file depends upon order.
+|| This format will continue to be supported, for benefit of old .FLAP files.
+|   #of-fns-defined
+| a word for each fn definition:  byte (4)what (15)which (17)where
+|     what - what kind of entry point, 0-5 = expr of that many args,
+|			8 = fexpr, 9 = lexpr, 10 = macro
+|     which - index into the function table (above) for this fn
+|     where - entry point as offset past beginning of code
+
+(de finalap ()
+    (let ((lc (length constlist)) (lv (length vconstlist))
+	  (lf (length fns-called)))
+	 (cmsg 0 "Writing " filnam ", " fns-defned " functions in "
+	       codewords " words of code." t
+	       "Using " lc " constants, " lv " specials, "
+	       lf " functions.")
+	 (without t (openf filnam '(out newversion))
+		  (msg t 'size: 1 (plus lc lv lf) 1 codewords
+		       t 'constants: 1 lc (e (mapc 'prinb constlist))
+		       t 'variables: 1 lv (e (mapc 'prinb vconstlist))
+		       t 'functions: 1 lf (e (mapc 'prinb fns-called))
+		       t 'binary: t))
+	 (without t (openf filnam '(old append 36))
+		  (binout 666q)
+		  (binout codewords)
+		  (mapc (f:l (x) (binout (boole 7 (lsh (car x) 18)
+					          (boole 1 (cdr x) 777777q))))
+			gcodelis)
+		  (binout (minus codewords))
+		  (binout 0))  | no function defn's here, doing in EXTRAS now
+|		  (mapc (f:l (x)
+|			 (binout (+ (lsh (+ (lsh (car x) 15) | what
+|					    (cadr x)) 17)    | which
+|				    (caddr x))))	     | where
+|			fns-defned))
+	 (without t (openf filnam '(old append))
+		  (terpri)
+		  (mapc 'print extras)
+		  (terpri))))
+		  
+(de prinb (x) (msg 1 x))
+
+| This table must be an exact match with the one in BOOT.MID.
+|  Do not change one without the other.
+(dv %intpts
+    ((bnderr . 1) (%errset . 2) (free . 3) (getbar . 4)
+     (getint . 5) (%lambdabind (1 . 6) (2 . 7) (3 . 8) (4 . 9) (5 . 10))
+     (%lexpr-entry . 11) (retint . 12) (retrea . 13) (%set-bcp . 14)
+     (setbar . 15) (%unbind (1 . 16) (2 . 17) (3 . 18) (4 . 19) (5 . 20))
+     (%undeflabel . 21) (%within . 22) (%without . 23) (%readcontext . 24)
+     (%atom . 25) (%litatom . 26) (%cons . 27) (%xcons . 28) (%ncons . 29) ))
+
+(special %reg-p %reg-o1 %reg-o0 %reg-q %past-reg-q %reg-n %reg-w2 %larg)
+
+(setq %reg-p (get 'p 'sym))		| regular PDL for fn linkage
+(setq %reg-o1 (get 'o1 'sym))		| first of the five LISP object regs
+(setq %reg-o0 (-i (get 'o1 'sym)))	| for computing the others
+(setq %reg-q (get 'q 'sym))		| the value stack for locals
+(setq %reg-n (get 'n 'sym))		| not used
+(setq %reg-w2 (get 'w2 'sym))		| for jsp links to internals
+
+(setq %larga (+ 20q %reg-p))
+(setq %largd -1)	|  assembles "@-1(P)" for referring to LSUBR args
+
+(special %jsp %adjsp %pushj %popj %movei %move %movem %jrst %camn %came
+	 %jumpe %jumpn %setam %push %tlnn %tlne %tdzn %caia)
+
+(mapc 'set
+      '(%jsp	%adjsp	%pushj	%popj	%movei	%move	%movem	
+	%jrst	%camn	%came	%jumpe	%jumpn	%setam	%push
+	%tlnn	%tlne	%tdzn	%caia)
+      '(265000q 105000q 260000q 263000q 201000q 200000q 202000q 
+	254000q 316000q 312000q 322000q 326000q 426000q 261000q
+	607000q 603000q 636000q 304000q))
+
+(de accumulap (codelist)
+ (cond [labelist (apply/# 'remob labelist) (setq labelist nil)])
+ (let ((constants 0) x y z (stkoffset 0) u)
+      (while codelist
+       (setq u (cdar codelist))
+       (selectq (caar codelist)
+| arranged by decreasing frequency of occurance (in the code for
+| the compiler).  FYI including # of occurances in 7741 instructions
+	[*Load		|  (reg exp) load exp into reg (move) :: 3445
+	 (dinst %move (reg (car u)) (dwhat (cadr u) (car u)))]
+	[*Link		|  (fn type nargs) function call (pushj) :: 1413
+	 (if (eq (cadr u) 'unknown)
+	     (dinst %movei %reg-n (cons 0 (caddr u))))
+	 (dinst %pushj %reg-p (djconst u))]
+	[*Store		|  (reg floc) store reg into floc (movem) :: 771
+	 (dinst %movem (reg (car u)) (dwhat (cadr u) nil))]
+	[*Lbl		|  (addr) you are here :: 634
+	 (put (car u) codewords 'defn)
+	 (push labelist (car u))
+	 (mapc (f:l (x) (rplacd x (+ %ad+typ (- codewords (cdr x)))))
+	       (get (car u) 'fixups))]
+        [*Jumpnil	|  (addr reg) jump if reg is Nil (jumpe) :: 329
+	 (dinst %jumpe (reg (or (cadr u) 1)) (dlabel (car u)))]
+	[*Jump		|  (addr) unconditional (jrst)  :: 268
+	 (dinst %jrst 0 (dlabel (car u)))]
+	[*Entry		|  (name type nargs) entry point to function :: 184
+			||  of type type with nargs args
+			||  assemble nothing for an subr of fsubr of 1 arg,
+			||  call %set-bcp    for an fsubr of 2 args,
+			||  jsp w2,%lexpr-entry  for an lsubr.
+	 (put (car u) codewords 'relad)
+	 (setq fns-called (enter (car u) fns-called))
+	 (push extras
+               (list '%FLAP-ENTRY (car u) codewords (cadr u) (caddr u)))
+	 (incr fns-defned)
+	 (cond [(eq 'lsubr (cadr u))
+		(dinst %jsp %reg-w2 (intentry '%lexpr-entry))]
+	       [(and (eq 'fsubr (cadr u)) (eq 2 (caddr u)))
+		(dinst %pushj %reg-p (intentry '%set-bcp))])]
+	[*Allocate | (n) allocate stack frame of n words (adjsp n) :: 184
+	 (if (=0 (car u)) () (dinst %adjsp %reg-q (cons 0 (car u))))]
+	[*Abscond	| (n) deallocate and return (adjsp -n)  :: 152
+	 (if (=0 (car u)) () (dinst %adjsp %reg-q (cons 0 (minus (car u)))))
+	 (dinst %popj %reg-p (cons 0 0))]
+	[*Jumpt		|  (addr reg) jump if reg nonNil (jumpn) :: 124
+	 (dinst %jumpn (reg (or (cadr u) 1)) (dlabel (car u)))]
+	[*Linke		|  (fn type nargs n) dealloc + jrst hack :: 92
+	 (if (neq 0 (cadddr u))
+	     (dinst %adjsp %reg-q (cons 0 (minus (cadddr u)))))
+	 (if (eq (cadr u) 'unknown)
+	     (dinst %movei %reg-n (cons 0 (caddr u))))
+	 (dinst %jrst 0 (djconst u))]
+	[*Jumpn		|  (addr exp) jump if r1 neq exp (came/jrst) :: 66
+	 (dinst %came %reg-o1 (dwhat (cadr u) nil))
+	 (dinst %jrst 0 (dlabel (car u)))]
+	[*Freerstr	|  (alst) unbind variables in alst  :: 34
+	 (if (car u) (dinst %pushj %reg-p
+			    (intentry '%unbind (length (car u)))))]
+	[*Lambind	|  (regs alst) bind lambda vars from regs  :: 21
+	 (dinst %jsp %reg-w2 (intentry '%lambdabind (length (car u))))
+	 (mapxy (car u) (cadr u)
+		(dinst %setam (reg x) (dvconst (car y))))]
+	[*Progbind	|  (alst) bind prog vars (to Nil)  :: 13
+	 (dinst %jsp %reg-w2 (intentry '%lambdabind (length (car u))))
+	 (mapx (car u) (dinst %setam 0 (dvconst (car x))))]
+	[*Jumpe		|  (addr exp) jump if r1 eq exp (camn/jrst) :: 11
+	 (dinst %camn %reg-o1 (dwhat (cadr u) nil))
+	 (dinst %jrst 0 (dlabel (car u)))]
+	[*Freerstre	|  (alst) unbind variables in alst  :: 0
+	 (if (car u) (dinst %jrst 0 (intentry '%unbind (length (car u)))))]
+	[*Push		|  (reg exp) push exp on reg (a pdl) :: 0 (for lexprs)
+	 (dinst %push (reg (car u)) (dwhat (cadr u) nil))
+	 (incr stkoffset)]
+	[*Release	| (n) deallocate only  :: 0  (for lexprs)
+	 (if (=0 (car u)) () (dinst %adjsp %reg-q (cons 0 (minus (car u)))))
+	 (if (minusp (setq stkoffset (- stkoffset (car u))))
+	     (error "stack offset mismatch"))]
+| implemented only for types that we try to do in line
+        [*Jumpc 	|  (addr reg type) jump if exp is of type type (?)
+	 (selectq (caddr u)
+	     [Atom
+		(dinst %tlnn (reg (cadr u)) (cons 0 740000q))
+		(dinst %tlnn (reg (cadr u)) (cons 0 020000q))]
+	     [Consp
+		(dinst %tlnn (reg (cadr u)) (cons 0 740000q))
+		(dinst %tlnn (reg (cadr u)) (cons 0 020000q))
+		(dinst %caia 0 (cons 0 0))]
+	     [Litatom
+		(dinst %tlnn (reg (cadr u)) (cons 0 760000q))]
+	     [Cmsg 0 "*** Compiler error - illegal type in *JUMPC" (caddr u)
+		   T])
+	 (dinst %jrst 0 (dlabel (car u)))]
+        [*Jumpnc	|  (addr reg type) ... is not of type
+	 (selectq (caddr u)
+	     [Atom
+		(dinst %tlnn (reg (cadr u)) (cons 0 740000q))
+		(dinst %tlnn (reg (cadr u)) (cons 0 020000q))
+		(dinst %caia 0 (cons 0 0))]
+	     [Consp
+		(dinst %tlnn (reg (cadr u)) (cons 0 740000q))
+		(dinst %tlnn (reg (cadr u)) (cons 0 020000q))]
+	     [Litatom
+		(dinst %tlne (reg (cadr u)) (cons 0 760000q))]
+	     [Cmsg 0 "*** Compiler error - illegal type in *JUMPNC" (caddr u)
+		   T])
+	 (dinst %jrst 0 (dlabel (car u)))]
+	[Cmsg 0 "*** Compiler error - Unrecognized CMACRO: " (car codelist) T]
+         )
+       (setq codelist (cdr codelist)))))
+
+
+| args to dinst : inst is opcode, an 18 bit lh value
+|		: reg is A in move a,foo -- a 4-bit value
+|		: efad is a cons, car is added to the lh { @(x) fields}
+|			and cadr is the rh with typ code already in.
+|	   efad is destructively modified, so it must be new for each call
+(de dinst (inst reg efad)
+    (incr codewords)
+    (push gcodelis (rplaca efad (plus inst (lsh reg 5) (car efad)))))
+
+(de intentry (x y)
+    (cons 0 (+ %inttyp (or (cdr (cond [y (assoc y (assoc x %intpts))]
+				      [t (assoc x %intpts)]))		      
+			     (error "invalid symbol lookup")))))
+
+(de reg (x) (cond [(null x) 0]
+		  [(regp x) (+ x %reg-o0)]
+		  [(eq x 'q) %reg-q]
+		  [(eq x 'p) %reg-p]
+		  [(eq x 'n) %reg-n]
+		  [(eq x 'w2) %reg-w2]
+		  [t (error "invalid reg")]))
+
+(de regp (x) (memq x '(1 2 3 4 5)))
+
+(de dconst (con)
+    (cons 0 (+ %contyp (length (or (member con constlist)
+				   (setq constlist (cons con constlist)))))))
+
+(de dlabel (lab)
+    (cond [(get lab 'defn) (cons 0 (+ %ad-typ (- codewords (get lab 'defn))))]
+	  [t (car (put lab (cons (cons 0 codewords)
+				 (get lab 'fixups)) 'fixups))]))
+
+(de djconst (conl)
+    (let ((con (car conl)) x)
+	 (cond [(eq 'internal (cadr conl))
+		(cons 0 (+ %inttyp (cdr (assoc con %intpts))))]
+	       [t (cons 20q
+		   (+ %funtyp
+		      (length (or (memq con fns-called)
+				  (setq fns-called
+					(cons con fns-called))))))])))
+
+(de dvconst (con)
+    (if con (cons  20q (+ %vartyp
+			  (length
+			   (or (memq con vconstlist)
+			       (setq vconstlist (cons con vconstlist))))))
+	(cons 0 0)))
+
+| the WHAT can be a (quote foo) [constant ref],
+|   (fluid foo) [variable ref],
+|   positive number [register],
+|   negative number [stack reference],
+|   (car r) or (cdr r) where r is a register
+|   (GETVEC-nn r) where R is a register and the VECTORFN property gives NN
+| target is either a reg number (number from 1 to maxargs)
+|   or NIL.  If a reg number, this is *LOAD and this is the target reg of
+|   the load.  If NIL, it is something else, and TEMPREG will have to be used
+
+(de dwhat (ref target)
+    (cond [(numberp ref) (if (gt ref 0) (cons 0 (reg ref))
+			     (cons %reg-q (- ref stkoffset)))]
+	  [(eq ref '%larg) (cons %larga %largd)]
+	  [(atom ref) (error "unknown ref type")]
+	  [(eq 'quote (car ref)) (dconst (cadr ref))]
+	  [(eq 'fluid (car ref)) (dvconst (cadr ref))]
+	  [(eq 'car (car ref)) (cons (reg (cadr ref)) 0)]
+	  [(eq 'cdr (car ref)) (cons (reg (cadr ref)) 1)]
+	  [(get (car ref) 'vectorfn)
+	   (cons (reg (cadr ref)) (get (car ref) 'vectorfn))]
+	  [(memq (car ref) '(not null))
+	   (cond [(null target)   | need the result in a temp
+	 	  (dinst %move (reg tempreg) (cons 0 (reg (cadr ref))))
+		  (dinst %tdzn (reg tempreg) (cons 0 (reg tempreg)))
+		  (dinst %move (reg tempreg) (dwhat ''T))
+		  (cons 0 (reg tempreg))]  | final result is in tempreg
+		 [(eq target (cadr ref))   | in place
+		  (dinst %tdzn (reg target) (cons 0 (reg target)))
+		  (dwhat ''T)]		   | this will turn into MOVE REG,T
+		 [T
+		  (dinst %move (reg target) (cons 0 (reg (cadr ref))))
+		  (dinst %tdzn (reg target) (cons 0 (reg target)))
+		  (dwhat ''T)])]
+	  [(eq 'consp (car ref))
+	   (cond [(null target)   | need the result in a temp
+	 	  (dinst %move (reg tempreg) (cons 0 (reg (cadr ref))))
+		  (dinst %tlnn (reg tempreg) (cons 0 740000q))
+		  (dinst %tlnn (reg tempreg) (cons 0 020000q))
+		  (dinst %move (reg tempreg) (cons 0 0))
+		  (cons 0 (reg tempreg))]  | final result is in tempreg
+		 [(eq target (cadr ref))   | in place
+		  (dinst %tlnn (reg target) (cons 0 740000q))
+		  (dinst %tlnn (reg target) (cons 0 020000q))
+		  (cons 0 0)]		   | this will turn into MOVE REG,NIL
+		 [T
+		  (dinst %move (reg target) (cons 0 (reg (cadr ref))))
+		  (dinst %tlnn (reg target) (cons 0 740000q))
+		  (dinst %tlnn (reg target) (cons 0 020000q))
+		  (cons 0 0)])]
+	  [t (error "unknown ref type")]))
+
+(Setq *Raisedsk Nil)  | Undo Josh's default
+
+
+Local Modes:
+Comment Begin:|  
+Comment Start:|
+Comment Column:0
+End:
+ 

@@ -1,0 +1,371 @@
+(SPECIAL BROKENFNS TRACEDFNS TRACEVFNS UNBREAKABLEFNS BKFNLIST
+	 UPFINDFLG /#%INDENT LASTWORD)
+
+(DE BREAK0 (FN WHEN COM)
+  (PROG (FN1 FN2)
+	(COND
+	 [(CONSP FN)
+	  (RETURN (COND [(NOT (EQ (CADR FN) 'IN))
+			 (MAPCAR (FUNCTION (LAMBDA (FN) (BREAK0 FN WHEN COM)))
+				 FN)]
+			[T (COND [(ATOM (SETQ FN1 (CAR FN)))
+				  (SETQ FN1 (LIST FN1))])
+			   (MAPCAN (FUNCTION
+				    (LAMBDA (FN2)
+				     (MAPCAR (FUNCTION
+					      (LAMBDA (FN1)
+					       (BREAK0A FN1 FN2 WHEN COM)))
+					     FN1)))
+				   (COND [(ATOM (SETQ FN2 (CADDR FN)))
+					  (LIST FN2)]
+					 [T FN2]))]))]
+	 [(NULL (SETQ FN1 (FUNDEF FN)))
+	  (MSG -1. FN " is not a breakable function." T)
+	  (RETURN (CONS FN '(?)))]
+	 [(GET FN 'TRACE)
+	  (SETQ BROKENFNS (REMOVE FN BROKENFNS))
+	  (SETQ TRACEDFNS (REMOVE FN TRACEDFNS))
+	  (COND [(EQ (CAR (SETQ FN2 (CADDDR FN1))) 'BREAK1)
+		 (RPLACA (CDDR FN2) WHEN)
+		 (GO END)]
+		[T (APPLY 'UNBREAK (LIST FN)) (RETURN (BREAK0 FN WHEN COM))])])
+	(COND [(MEMQ FN UNBREAKABLEFNS)
+	       (MSG -1. FN " unbreakable unless IN something." T)
+	       (RETURN (CONS FN '(?)))])
+	(SETQ FN1 (SAVEDEF FN FN1))
+	(ALIAS FN  
+		 (LIST (CAR FN1)
+		       (CADR FN1)
+		       (CADDR FN1)
+		       (SETQ FN2
+			     (LIST 'BREAK1
+				   (CONS 'QUOTE (CDDDR FN1))
+				   WHEN 
+				   (LIST 'QUOTE FN)
+				   NIL 
+				   NIL))))
+    END (RPLACA (CDDDDR FN2)
+		(AND COM 
+		     [LIST 'QUOTE
+			   (COND [(EQ (CADR COM) '//BREAK1)
+				  (RPLACA (CDR COM)
+					  (CONS '?= (CONSP (CADDR FN1))))
+				  COM]
+				 [COM])]))
+	(SET BKFNLIST (CONS FN (EVAL BKFNLIST)))
+	(RETURN FN)))
+
+(DE SAVEDEF (FN DEF)
+  (PROG (GS ARGS)
+     L0 (COND [(OR (BOUNDP (SETQ GS (INTERN (GENSYM))))(FUNDEF GS) (PLIST GS))
+	       (GO L0)])
+	(ALIAS GS (CONS (COND [(EQ (CAR DEF) 'MACRO) 'FEXPR]
+			      [(EQ (CAR DEF) 'MSUBR) 'FSUBR]
+			      [(CAR DEF)])
+			(CDR DEF)))
+	(PUTPROP GS (CONS FN (CAR DEF)) 'FUNTYPE)
+	(PUTPROP GS '(T T NIL NIL) 'ERXACTION)
+	(PUTPROP FN '(NIL NIL T T) 'ERXACTION)
+     L1 (COND [(MEMQ (CAR DEF) '(MSUBR FSUBR SUBR))
+	       (COND [(SETQ ARGS (GET FN 'ARGS)) (GO L2)])
+	       (MSG 0. FN " argument list [or T]? ")
+	       (COND [(AND [SETQ ARGS (READ)] [ATOM ARGS])
+		      (SELECTQ (CAR DEF)
+			[MSUBR (SETQ ARGS '(FORM))]
+			[FSUBR (SETQ ARGS '(ARGLIST))]
+			[SUBR (SETQ ARGS (SUBR-ARGS (CADDR DEF)))]
+		 	NIL)]
+		     [(NOT (ATOMLISTP ARGS))
+		      (MSG 0. "Should be a list of atomic arguments.")
+		      (GO L1)]
+		     [(AND [MEMQ (CAR DEF) '(MSUBR FSUBR)]
+			   [OR [NULL ARGS] [CDR ARGS]])
+		      (MSG 0. "FSUBR or MSUBR -- Takes exactly one argument.")
+		      (GO L1)])
+	       (PUTPROP FN ARGS 'ARGS)]
+	      [(EQ (CAR DEF) 'LSUBR) (SETQ ARGS 'N?)]
+{;; Check for LEXPR - we hack on the definition destructively, changing it
+ from LEXPR to EXPR.  Since we are changing the argument structure, we have
+ to call ALIAS to reprocess it}
+	      [(AND [ATOM (SETQ ARGS (CADDR DEF))]
+		    ARGS 
+		    [RPLACA (CDDR DEF) (NCONS (CADDR DEF))]
+		    [PUTPROP GS T 'LEXPR]
+		    [ALIAS GS (FUNDEF GS)])])
+     L2 (PUTPROP FN (CONS NIL GS) 'TRACE)
+	(RETURN (LIST (COND [(MEMQ (CAR DEF) '(SUBR EXPR LSUBR)) 'EXPR]
+			    [(MEMQ (CAR DEF) '(MSUBR MACRO)) 'MACRO]
+			    ['FEXPR])
+		      'LAMBDA
+		      ARGS 
+		      (LIST 'BRKAPPLY
+				  (LIST 'QUOTE GS)
+				  (COND [(EQ (CAR DEF) 'LSUBR) (LIST 'LXPD 'N?)]
+					[(AND ARGS [ATOM ARGS])
+					 (LIST 'QUOTE (NCONS ARGS))]
+					[(MEMQ (CAR DEF) '(SUBR EXPR))
+					 (LIST 'QUOTE ARGS)]
+					[T (CAR ARGS)]))))))
+
+(DE SUBR-ARGS (N)
+{;; Make up a list of N argument names}
+   (WITH (ARGS)
+	(SETQ ARGS (NCONS NIL))
+	(RPTQ N 
+	      (TCONC ARGS (READLIST (APPEND (EXPLODE 'ARG-)
+					    (EXPLODE RPTN)))))
+	(CAR ARGS)))
+
+(DE ATOMLISTP (LL)
+  (PROG NIL
+     LP (COND [(NULL LL) (RETURN T)]
+	      [(ATOM (CAR LL)) (SETQ LL (CDR LL)) (GO LP)])))
+
+(DE BRKAPPLY (/#%FN%/# /#%ARGS%/#) (EVAL (CONS /#%FN%/# /#%ARGS%/#)))
+
+(DF BREAK (FNS)
+  (PROG (VAL FN)
+	(OR FNS [SETQ FNS (LIST LASTWORD)])
+     LP (SETQ VAL
+	      (CONS (COND [(NULL FNS) (RETURN VAL)]
+			  [(ATOM (SETQ FN (CAR FNS)))
+			   (SETQ FN (BREAK0 FN T NIL))
+			   (AND [ATOM FN] [SETQ LASTWORD FN])
+			   FN]
+			  [(EQ (CADR FN) 'IN) (BREAK0 FN T NIL)]
+			  [(CDR FN) (BREAK0 (CAR FN) (CADR FN) (CDDR FN))]
+			  [T (CONS FN '(?))])
+		    VAL))
+	(SETQ FNS (CDR FNS))
+	(GO LP)))
+
+(DF TRACE (FNS)
+  (PROG (VAL FN BKFNLIST)
+	(OR FNS [SETQ FNS (LIST LASTWORD)])
+	(SETQ BKFNLIST 'TRACEDFNS)
+     LP (SETQ VAL
+	      (CONS (COND [(NULL FNS) (RETURN VAL)]
+			  [(ATOM (SETQ FN (CAR FNS)))
+			   (SETQ FN
+				 (BREAK0 FN 
+					 T 
+					 (LIST '(TRACE) '//BREAK1 '(UNTRACE))))
+			   (AND [ATOM FN] [SETQ LASTWORD FN])
+			   FN]
+			  [(EQ (CADR FN) 'IN)
+			   (BREAK0 FN T (LIST '(TRACE) '//BREAK1 '(UNTRACE)))]
+			  [T (BREAK0 (CAR FN)
+				     (COND [(CDR FN) (CADR FN)] [T])
+				     (LIST '(TRACE)
+					   (COND [(CDDR FN)
+						  (CONS '?= (CDDR FN))]
+						 [T '//BREAK1])
+					   '(UNTRACE)))])
+		    VAL))
+	(SETQ FNS (CDR FNS))
+	(GO LP)))
+
+(DEFV TRACE NIL)
+
+(DF BREAKIN (X)
+  (BREAKIN0 (CAR X)
+	    (COND [(SETQ X (CDR X)) (CAR X)] ['(BEFORE TTY:)])
+	    (COND [(AND X [SETQ X (CDR X)]) (CAR X)] [T])
+	    (AND X [LIST 'QUOTE (CDR X)])))
+
+(DE BREAKIN0 (FN WHERE WHEN BKINCOMS)
+  (PROG (FNDEF W MESS)
+	(COND [(AND (SETQ FNDEF (FUNDEF (COND [(SETQ W (GET FN 'TRACE))
+				               (CDR W)]
+					      [FN])))
+		    (MEMQ (CAR FNDEF) '(EXPR MACRO FEXPR)))
+	       (SETQ FNDEF (CDR FNDEF))]
+	      [T (MSG -1. FN " can't be broken into." T)
+		 (RETURN (CONS FN '(?)))])
+	(COND [(CONSP (CAR WHERE))
+	       (SETQ W (CDR WHERE))
+	       (SETQ WHERE (CAR WHERE))]
+	      [T (SETQ W NIL)])
+   LOOP (OR [MEMQ (CAR WHERE) '(AROUND BEFORE AFTER)]
+	    [PROGN (PRINT (CAR WHERE)) (PRINC '"  ?") (TERPRI) (GO NEXT)])
+	(SETQ MESS
+	      (LIST 'BREAK1
+		    (COND [(EQ (CAR WHERE) 'AROUND) ''*])
+		    WHEN 
+		    (LIST 'QUOTE (LIST FN WHERE))
+		    BKINCOMS 
+		    NIL))
+	(COND [(ATOM (ERRSET (EDITE FNDEF 
+				    (LIST (CONS 'LC (CDR WHERE))
+					  (LIST (SELECTQ [CAR WHERE]
+							 [AFTER 'A]
+							 [BEFORE 'B]
+							 [AROUND 'MBD]
+							 [CAR WHERE])
+						MESS))
+				    NIL)
+			     ERRORX))
+	       (MSG -1. (CDR WHERE) " not found in " FN T)]
+	      [T (PUTPROP FN T 'BROKEN-IN)
+		 (SETQ BROKENFNS (CONS FN (REMOVE FN BROKENFNS)))])
+   NEXT (COND [W (SETQ WHERE (CAR W)) (SETQ W (CDR W)) (GO LOOP)])
+	(RETURN FN)))
+
+(DE UNBREAKIN (FN)
+  (PROG (W UPFINDFLG)
+	(SETQ UPFINDFLG T)
+	(COND [(SETQ W (GET FN 'TRACE)) (SETQ W (CDR W))] [(SETQ W FN)])
+	(COND [(AND (SETQ W (FUNDEF W)) (MEMQ (CAR W) '(EXPR MACRO FEXPR)))
+	       (SETQ W (CDR W))]
+	      [(RETURN (CONS FN '(?)))])
+	(EDITE W 
+	       '((LPQ F 
+		      BREAK1 
+		      (COMS (SELECTQ [(/#/# $$) 4. 2. 2. 1.]
+				     [AROUND '(XTR 2. 2.)]
+				     [(AFTER BEFORE) 'DELETE]
+				     NIL))))
+	       NIL)
+	(RETURN FN)))
+
+(DE BREAK0A (BFN INFN WHEN COMS)
+  (COND [(ATOM (SETQ BFN (CHNGNM INFN BFN NIL))) (BREAK0 BFN WHEN COMS)]
+	[T BFN]))
+
+(DE CHNGNM (FN OLDN FLG)
+  (PROG (DEF NEWN X Y Z)
+	(COND [(AND (SETQ DEF (FUNDEF (COND [(SETQ Z (GET FN 'TRACE)) (CDR Z)]
+				            [FN])))
+		    (MEMQ (CAR DEF) '(EXPR FEXPR MACRO)))]
+	      [T
+	       (MSG -1. FN " can't be broken into." T)
+	       (RETURN (CONS FN '(?)))])
+	(SETQ NEWN (PACK-IN (LIST OLDN 'IN FN)))
+	(COND [FLG (ALIAS NEWN NIL)
+		   (COND [(SETQ Z (REMOVE OLDN (GET FN 'NAMESCHANGED)))
+			  (PUTPROP FN Z 'NAMESCHANGED)]
+			 [(REMPROP FN 'NAMESCHANGED)])
+		   (REMPROP NEWN 'ALIAS)
+		   (SETQ Y OLDN)
+		   (SETQ X NEWN)]
+	      [T (SETQ Y NEWN)
+		 (SETQ X
+		       (COND [(MEMQ OLDN (GET FN 'NAMESCHANGED)) NEWN] [T OLDN])
+		  )])
+	(UNMACEXPAND (CDR DEF))
+	(COND [(NULL (CHNM1 (CDR DEF) X Y))
+	       (MSG -1. X " not found in " FN T)
+	       (RETURN (CONS FN '(?)))])
+	(COND [(NULL FLG)
+	       (ALIAS NEWN (FUNDEF OLDN))
+	       (COND [(NOT (MEMQ OLDN (SETQ Z (GET FN 'NAMESCHANGED))))
+		      (PUTPROP FN (CONS OLDN Z) 'NAMESCHANGED)])
+	       (PUTPROP NEWN (CONS FN OLDN) 'ALIAS)
+	       (AND [SETQ DEF (GET OLDN 'ARGS)] [PUTPROP NEWN DEF 'ARGS])])
+	(RETURN Y)))
+
+(DF UNBREAK (X)
+  (PROG (Y)
+	(COND [(NULL X) (SETQ X (EVAL BKFNLIST)) (SET BKFNLIST NIL)]
+	      [(AND [EQ (CAR X) T] [SETQ Y (EVAL BKFNLIST)])
+	       (RPLACA X (CAR Y))
+	       (SET BKFNLIST (CDR Y))])
+	(RETURN (MAPCAR (FUNCTION UNBREAK0) X))))
+
+(DF UNTRACE (X)
+  (PROG (BKFNLIST)
+	(SETQ BKFNLIST 'TRACEDFNS)
+	(RETURN (APPLY 'UNBREAK X))))
+
+(DE UNBREAK! (X)
+  (AND [EQ X (UNBREAK0 X)] [TTYMSG -1. X " is being unbroken." T])
+  (MAPC (FUNCTION
+	 (LAMBDA (Y)
+	  (UNBREAK0 (SETQ Y (LIST Y 'IN X)))
+	  (TTYMSG -1. Y " is being unbroken." T)))
+	(GET X 'NAMESCHANGED)))
+
+(DE UNBREAK0 (FN)
+  (PROG (X ALIAS)
+	(SETQ BROKENFNS (DREMOVE (SETQ FN (PACK-IN FN)) BROKENFNS))
+	(SETQ TRACEDFNS (DREMOVE FN TRACEDFNS))
+	(SETQ X (RESTORE FN 'TRACE))
+	(COND [(GET FN 'BROKEN-IN)
+	       (SETQ X (UNBREAKIN FN))
+	       (REMPROP FN 'BROKEN-IN)])
+	(AND [SETQ ALIAS (GET FN 'ALIAS)] [CHNGNM (CAR ALIAS) (CDR ALIAS) T])
+	(RETURN X)))
+
+(DE RESTORE (FN P)
+  (PROG (Y Z TYPE)
+	(RETURN
+	 (COND
+	  [(SETQ Y (GET FN P))
+	   (SETQ Y (CDR Y))
+	   (COND [(AND [SETQ Z (FUNDEF FN)]
+		       [EQ (CAR Z)(SELECTQ [SETQ TYPE (CDR (GET Y 'FUNTYPE))]
+					   [(EXPR SUBR LSUBR) 'EXPR]
+					   [(FEXPR FSUBR) 'FEXPR]
+					   'MACRO)]
+		       [EQ (CAADDR (CDR Z)) 'BREAK1])
+		  (SETQ Z (CDR (FUNDEF Y)))
+		  (COND [(GET Y 'LEXPR) (RPLACA (CDR Z) (CAADR Z))])
+		  (ALIAS FN (CONS TYPE Z))])
+	   (EVAL (LIST 'REMOB Y))
+	   (REMPROP FN 'ERXACTION)
+	   (REMPROP FN P)
+	   FN]
+	  [(CONS FN '(not broken))]))))
+
+(DE PACK-IN (X)
+  (COND [(ATOM X) X]
+	[(EQ (CADR X) 'IN)
+	 (READLIST (NCONC (AEXPLODE (CAR X))
+			  (NCONC (AEXPLODE '-IN-) (AEXPLODE (CADDR X)))))]
+	[(PRINT (CONS X '(?))) (ERR NIL)]))
+
+(DF TRACEV (L)
+  (COND [(NULL TRACEVFNS)
+	 (ALIAS 'SETQ '%TRSETQ)
+	 (ALIAS 'SET '%TRSET)])
+  (SETQ TRACEVFNS (NCONC (REVERSE L) TRACEVFNS))
+  L)
+
+(DF UNTRACEV (L)
+  (COND [(NULL L) (SETQ L (APPEND TRACEVFNS NIL))]
+	[(AND TRACEVFNS [EQ (CAR L) T]) (RPLACA L (CAR TRACEVFNS))])
+  (PROG1 (MAPCAR (FUNCTION
+		  (LAMBDA (X)
+		   (COND [(MEMB X TRACEVFNS)
+			  (SETQ TRACEVFNS (DREMOVE X TRACEVFNS))
+			  X]
+			 [T (CONS X '(not TRACEVed))])))
+		 L)
+	 (COND [(NULL TRACEVFNS) (ALIAS 'SETQ 'BKSETQ)
+			         (ALIAS 'SET 'BKSET)]
+	  )))
+
+(DF %TRSETQ (P) (%TRSET (CAR P) (EVAL (CADR P)))) 
+
+(DE %TRSET (A V)
+  (COND [(MEMB A TRACEVFNS) (BKPOS /#%INDENT) (MSG "Set " A " to ") (%PRINFN V)])
+  (BKSET A V))
+
+(ALIAS 'BKSETQ 'SETQ)
+
+(ALIAS 'BKSET 'SET)
+
+(DEFV BROKENFNS NIL)
+
+(DEFV TRACEDFNS NIL)
+
+(DEFV TRACEVFNS NIL)
+
+(DEFV /#%INDENT 0)
+
+(DEFV BKFNLIST BROKENFNS)
+
+(DEFV UNBREAKABLEFNS (BREAK1 //BREAK1 %UNTRACE LXPD BRKAPPLY BKSETQ BKSET
+		      QUOTE))
+
+  

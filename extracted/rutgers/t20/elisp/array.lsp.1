@@ -1,0 +1,308 @@
+(SPECIAL %%CODE %%DATA %%PC)
+
+(DF ARRAY (%%L)
+  (OR (CDDR %%L) (ERROR "ARRAY - NO SUBSCRIPTS GIVEN"))
+  (PROG (%%TYPE)
+    (SETQ %%TYPE (EVAL (CADR %%L)))
+    {;; at the moment array-bounds is used only by STORE to see whether we
+	have an array, but later it might be useful for other things}
+    {;; We turn NIL into REAL since otherwise (GET .. 'ARRAY-TYPE) will
+	return NIL and thus seem to have failed}
+    (PUTPROP (CAR %%L) (OR %%TYPE 'REAL) 'ARRAY-TYPE) 
+    (COND ((EQ %%TYPE T) (ARRAY-VECTOR (CAR %%L) (CDDR %%L)))
+	  ((EQ %%TYPE NIL) (ARRAY-REAL (CAR %%L) (CDDR %%L)))
+	  ((EQ %%TYPE 36) (ARRAY-INT (CAR %%L) (CDDR %%L)))
+	  ((AND (INUMP %%TYPE) (*GREAT %%TYPE 0) (*LESS %%TYPE 36))
+	   (ARRAY-BYTE %%TYPE (CAR %%L) (CDDR %%L]
+
+(DE %DEFINE-SUBS (%%NAME %%DIMS)
+  (PROG (%%RET)
+    (SETQ %%RET (%SUBSCRIPT-CODE %%DIMS))
+    (RETURN (CONS (CAR %%RET)
+            (%MAKE-FTN %%NAME (CADR %%RET) (CADDR %%RET) (LENGTH %%DIMS))))))
+
+(DE %MAKE-FTN (NAME CODE DATA NUMARGS)
+  (PROG (STDATA STCODE PC)
+    (SETQ STDATA (%ALLOCATE-BPS 0 (+ (LENGTH CODE) (LENGTH DATA))))
+    (SETQ STCODE (PLUS 1 STDATA (LENGTH DATA)))
+    (SETQ PC (ADD1 STDATA))
+    (SETQ STDATA (BOOLE 1 STDATA 777777Q))
+DLOOP
+    (OR DATA (GO DOCODE))
+    (%DEPOSIT-CONSTANT PC (CAR DATA))
+    (SETQ DATA (CDR DATA))
+    (SETQ PC (ADD1 PC))
+    (GO DLOOP)
+
+DOCODE
+    (SETQ PC STCODE)
+CLOOP
+    (OR CODE (GO DODEF))
+    (COND ((ATOM (CADDAR CODE))
+	   (%DEPOSIT-INSTRUCTION PC (CAAR CODE) (CADAR CODE) (CADDAR CODE)))
+          (T (%DEPOSIT-INSTRUCTION PC (CAAR CODE) (CADAR CODE)
+		(+ STDATA (CAR (CADDAR CODE))))))
+    (SETQ CODE (CDR CODE))
+    (SETQ PC (ADD1 PC))
+    (GO CLOOP)
+
+DODEF
+    (%SET-FUNCTION-ENTRY NAME STCODE 'SUBR NUMARGS)
+    (%FUNCTION-ADDRESS-BLOCK NAME)
+    (RETURN STCODE)))
+
+(DE %SUBSCRIPT-CODE (%%DIMS)
+  (PROG (%%MULT %%CODE %%DATA %%AC  %%X)
+	[NILL returns: (arraysize code data)
+	      code and data are stored within this program in reverse:
+	code:	(opcode ac inum) - absolute
+		(opcode ac (inum)) - ref to the ith member of data
+	data:   inum
+	(1) is the last thing on data as stored here, but will be
+	the first after the REVERSE is done]
+    (SETQ %%MULT 1)
+    (SETQ %%AC 5)
+LOOP[OR %%DIMS
+	(PROGN (%TLO 5 010000Q)
+{;; Note that we are returning a TY%IADR, i.e. an internal (unprintable)
+   address.  We do that because it is going to get added to a vector,
+   and if we returned an actual integer the result would overflow into
+   the sign bit, making it unusable for indexing}
+	       (ABSINST 263Q 17Q 0)
+	       (RETURN (LIST %%MULT (DREVERSE %%CODE) (DREVERSE %%DATA)]
+    [AND (*GREAT %%AC 9) (ERROR "ARRAY - TOO MANY SUBSCRIPTS"]
+    [SETQ %%X (EVAL (CAR %%DIMS]
+    [COND ((INUMP %%X) (SETQ %%X (CONS 0 %%X)))
+	  ((CONSP %%X) (OR (INUMP (CAR %%X)) (ERROR "ARRAY - ILLEGAL BOUND"))
+		       (OR (INUMP (CDR %%X)) (ERROR "ARRAY - ILLEGAL BOUND")))
+	  (T (ERROR "ARRAY - ILLEGAL BOUND"]
+    [AND (*LESS (CDR %%X) (CAR %%X)) (ERROR "ARRAY - UPPER BND < LOWER"]
+    [COND ((MINUSP (CAR %%X))
+{;; for negative numbers, we first convert to internal numbers and then
+ subtract the bound using bare arithmetic.  SUBO uses the Lisp number 
+ form of the argument.  SUBN uses the bare number}
+	   (%SUBO %%AC 0)
+	   (%SUBN %%AC (CAR %%X)))
+	  (T
+	   (%SUBO %%AC (CAR %%X)))]
+    [%CAIL %%AC 0]
+    [%CAMLE %%AC (- (CDR %%X) (CAR %%X))]
+    [%PUSHJ (+ (GET 'BNDERR 'SYM) (- %%AC 5]
+    [OR (EQ %%MULT 1) (%IMUL %%AC %%MULT)]
+    [OR (EQ %%AC 5) (PROGN (%ADDIN 5 %%AC) (%SETZ %%AC))]
+    [SETQ %%AC (ADD1 %%AC)]
+    [SETQ %%DIMS (CDR %%DIMS)]
+    [SETQ %%MULT (* %%MULT (+ 1 (- (CDR %%X) (CAR %%X]
+    [GO LOOP]))
+
+(DE ABSINST (OPCODE AC EFF)
+  (SETQ %%CODE (CONS (LIST OPCODE AC EFF) %%CODE)))
+
+(DE NUMINST (OPCODE OPCODEI AC NUM)
+ (COND
+  ((AND (*LESS NUM 1000000Q) (*GREAT NUM -1))
+   (ABSINST OPCODEI AC NUM))
+  (T 
+   (SETQ %%DATA (CONS NUM %%DATA))
+   (ABSINST OPCODE AC (LIST (LENGTH %%DATA))))))
+
+(DE %SETZ (AC) (ABSINST 400Q AC 0))
+
+(DE %LSH (AC EFF) (ABSINST 242Q AC EFF))
+
+(DE %ASH (AC EFF) (ABSINST 240Q AC EFF))
+
+(DE %TLO (AC BITS) (ABSINST 661Q AC BITS))
+
+(DE %SUBN (AC NUM) (NUMINST 274Q 275Q AC NUM))
+
+(DE %SUBO (AC NUM)
+  (SETQ %%DATA (CONS (+ 360000000000Q NUM) %%DATA))
+  (ABSINST 274Q AC (LIST (LENGTH %%DATA))))
+
+(DE %CAIL (AC NUM) (ABSINST 301Q AC NUM))
+
+(DE %CAMLE (AC NUM) (NUMINST 313Q 303Q AC NUM))
+
+(DE %PUSHJ (ADDR) (ABSINST 260Q 17Q ADDR))
+
+(DE %IMUL (AC NUM) (NUMINST 220Q 221Q AC NUM))
+
+(DE %ADDIN (AC NUM) (ABSINST 270Q AC NUM))
+
+(DE %INST (OPCODE AC ADDR IND)
+  (SETQ ADDR (BOOLE 1 ADDR 777777Q))
+  (%DEPOSIT-INSTRUCTION %%PC OPCODE AC
+    (COND (IND (+ ADDR (* IND 1000000Q)))
+	  (T ADDR)))
+  (SETQ %%PC (ADD1 %%PC)))
+
+(DE ARRAY-VECTOR (%%NAME %%DIMS)
+  (PROG (%%S %%VEC %%PC %%N)
+    (SETQ %%N (LENGTH %%DIMS))
+    (SETQ %%S (%DEFINE-SUBS (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~SUBS")))
+                            %%DIMS))
+    (SETQ %%VEC (%ALLOCATE-BPS 1 8))
+    (%DEPOSIT-OBJECT-POINTER %%VEC (MAKEVECTOR (CAR %%S)))
+    (SETQ %%S (CDR %%S))
+    (SETQ %%PC (+ %%VEC 2))
+    (%SET-FUNCTION-ENTRY %%NAME %%PC 'SUBR %%N)
+    (%INST 260Q 17Q %%S) CALL FOO~SUBS
+    (%INST 270Q 5 %%VEC) ADD O1,VEC
+    (%INST 200Q 5 0 5)   MOVE O1,(O1)
+    (%INST 263Q 17Q 0)   RET
+    (%SET-FUNCTION-ENTRY   (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE")))
+			   %%PC 'SUBR 2)
+    (%INST 270Q 5 %%VEC) ADD O1,VEC
+    (%INST 202Q 6 0 5)   MOVEM O2,(O1)
+    (%INST 200Q 5 6)     MOVE O1,O2
+    (%INST 263Q 17Q 0)   RET
+    (%FUNCTION-ADDRESS-BLOCK %%NAME)
+    (%FUNCTION-ADDRESS-BLOCK (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE"))))))
+
+(DE ARRAY-INT (%%NAME %%DIMS)
+  (PROG (%%S %%VEC %%PC %%N)
+    (SETQ %%N (LENGTH %%DIMS))
+    (SETQ %%S (%DEFINE-SUBS (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~SUBS")))
+                            %%DIMS))
+    (SETQ %%VEC (%ALLOCATE-BPS 1 10))
+    (%DEPOSIT-OBJECT-POINTER %%VEC (MAKEARRAY (CAR %%S)))
+    (SETQ %%S (CDR %%S))
+    (SETQ %%PC (+ %%VEC 2))
+    (%SET-FUNCTION-ENTRY %%NAME %%PC 'SUBR %%N)
+    (%INST 260Q 17Q %%S) CALL FOO~SUBS
+    (%INST 270Q 5 %%VEC) ADD O1,VEC
+    (%INST 200Q 2 0 5)   MOVE W2,(O1)
+    (%INST 254Q 0 (GET 'RETINT 'SYM))
+			 JRST RETINT
+    (%SET-FUNCTION-ENTRY   (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE")))
+			   %%PC 'SUBR 2)
+    (%INST 250Q 5 6)     EXCH O1,O2
+    (%INST 270Q 6 %%VEC) ADD O2,VEC
+    (%INST 260Q 17Q (GET 'GETINT 'SYM))
+			 CALL GETINT
+    (%INST 202Q 2 0 6)   MOVEM W2,(O2)
+    (%INST 200Q 6 5)     MOVE O2,O1
+    (%INST 263Q 17Q 0) RET
+    (%FUNCTION-ADDRESS-BLOCK %%NAME)
+    (%FUNCTION-ADDRESS-BLOCK (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE"))))))
+
+(DE ARRAY-REAL (%%NAME %%DIMS)
+  (PROG (%%S %%VEC %%PC %%N)
+    (SETQ %%N (LENGTH %%DIMS))
+    (SETQ %%S (%DEFINE-SUBS (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~SUBS")))
+                            %%DIMS))
+    (SETQ %%VEC (%ALLOCATE-BPS 1 12))
+    (%DEPOSIT-OBJECT-POINTER %%VEC (MAKEARRAY (* 2 (CAR %%S))))
+    (SETQ %%S (CDR %%S))
+    (SETQ %%PC (+ %%VEC 2))
+    (%SET-FUNCTION-ENTRY %%NAME %%PC 'SUBR %%N)
+    (%INST 260Q 17Q %%S) CALL FOO~SUBS
+    (%INST 242Q 5 1)     LSH O1,1
+    (%INST 270Q 5 %%VEC) ADD O1,VEC
+    (%INST 120Q 2 0 5)   DMOVE W2,(O1)
+    (%INST 254Q 0 (GET 'RETREA 'SYM))
+		         JRST RETREA
+    (%SET-FUNCTION-ENTRY   (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE")))
+			   %%PC 'SUBR 2)
+    (%INST 250Q 5 6)	 EXCH O1,O2
+    (%INST 242Q 6 1)     LSH O2,1
+    (%INST 270Q 6 %%VEC) ADD O2,VEC
+    (%INST 260Q 17Q (GET 'GETREA 'SYM))
+			 CALL GETREA
+    (%INST 124Q 2 0 6)   DMOVEM W2,(O2)
+    (%INST 400Q 6 0)     SETZ O2,
+    (%INST 263Q 17Q 0) RET
+    (%FUNCTION-ADDRESS-BLOCK %%NAME)
+    (%FUNCTION-ADDRESS-BLOCK (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE"))))))
+
+(DE ARRAY-BYTE (%%BSIZE %%NAME %%DIMS)
+  (PROG (%%S %%VEC %%BHEAD %%PC %%N)
+    (SETQ %%N (LENGTH %%DIMS))
+    (SETQ %%S (%DEFINE-SUBS (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~SUBS")))
+                            %%DIMS))
+    (SETQ %%VEC (%ALLOCATE-BPS 1 13))
+    (%DEPOSIT-OBJECT-POINTER %%VEC
+                             (MAKEARRAY (+ 1 (// (CAR %%S) (// 36 %%BSIZE)))))
+    (SETQ %%S (CDR %%S))
+    (SETQ %%BHEAD (+ %%VEC 2))
+    (%DEPOSIT-CONSTANT %%BHEAD (+ 440040000000Q (* %%BSIZE 100000000Q)))
+    (SETQ %%PC (+ %%VEC 3))
+    (%SET-FUNCTION-ENTRY %%NAME %%PC 'SUBR %%N)
+ The following code should be restored when ADJBP is fixed
+    (%INST 260Q 17Q %%S)	CALL FOO~SUBS
+    (%INST 621Q 5 770000Q)      TLZ O1,770000
+    (%INST 200Q 2 %%BHEAD)	MOVE W2,BHEAD
+    (%INST 200Q 3 %%VEC)        MOVE W3,VEC
+    (%INST 621Q 3 770000Q)	TLZ W3,770000
+    (%INST 133Q 5 2)		ADJBP O1,W2
+    (%INST 134Q 5 5)		ILDB O1,O1
+    (%INST 661Q 5 100000Q)	TLO O1,100000
+    (%INST 201Q 6 0)		MOVE O2,NIL
+    (%INST 263Q 17Q 0)		RET
+ This code is about a factor of 2 too slow because it uses an overgeneral
+ routine.  It is not worth fixing because the microcode will be fixed soon.
+      (%INST 260Q 17Q %%S)	call foo~subs
+      (%INST 641Q 5 370000Q)	tlc o1,370000 ;make a real integer
+      (%INST 200Q 6 5)		move o2,o1
+      (%INST 200Q 5 %%VEC)	move o1,vec
+      (%INST 201Q 7 %%BSIZE)	movei o3,bsize
+      (%INST 254Q 0 (GET 'GETBAR 'SYM)) jrst getbar
+    (%SET-FUNCTION-ENTRY   (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE")))
+			   %%PC 'SUBR 2)
+Similarly the store uses SETBAR at the moment
+    (%INST 200Q 7 6)	     	MOVE O3,O2
+    (%INST 621Q 5 770000Q)      TLZ O1,770000
+    (%INST 200Q 2 %%BHEAD)	MOVE W2,BHEAD
+    (%INST 200Q 3 %%VEC)        MOVE W3,VEC
+    (%INST 621Q 3 770000Q)	TLZ W3,770000
+    (%INST 133Q 5 2)		ADJBP O1,W2
+    (%INST 136Q 7 5)		IDPB O3,O1
+    (%INST 200Q 5 7)		MOVE O1,O3
+    (%INST 201Q 6 0)		MOVE O2,NIL
+    (%INST 263Q 17Q 0)))	RET
+
+      (%INST 641Q 5 370000Q)	tlc o1,370000 ;make a real integer
+      (%INST 200Q 10Q 6)	move o4 o2
+      (%INST 201Q 7 %%BSIZE)    movei o3,bsize
+      (%INST 200Q 6 5)		move o2,o1
+      (%INST 200Q 5 %%VEC)	move o1,vec
+      (%INST 254Q 0 (GET 'SETBAR 'SYM)) jrst setbar
+      (%FUNCTION-ADDRESS-BLOCK %%NAME)
+      (%FUNCTION-ADDRESS-BLOCK (READLIST
+			       (APPEND (EXPLODE %%NAME)
+				       (EXPLODEC "~STORE"))))))
+
+(DM STORE (L)
+  (COND ((GET (CAADR L) 'ARRAY-TYPE) {;; ARRAY}
+         (LIST (READLIST (APPEND (EXPLODE (CAADR L)) (EXPLODEC "~STORE")))
+               (CONS (READLIST (APPEND (EXPLODE (CAADR L)) (EXPLODEC "~SUBS")))
+	             (CDADR L))
+               (CADDR L)))
+	(T  {;; STRUCTURE}
+	 (LIST (READLIST (APPEND (EXPLODEC "STORE-") (EXPLODE (CAADR L))))
+	       (CADADR L)
+	       (CADDR L)))))
+  

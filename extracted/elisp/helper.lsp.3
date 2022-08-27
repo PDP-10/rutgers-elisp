@@ -1,0 +1,398 @@
+(SPECIAL RPTN DSKIN)
+
+{;; A fairly basic Help system				MKSmith 11-Nov-81}
+
+{;; This system is designed to index help files and copy help info to a 
+    terminal on demand. If no help file index is available and
+    the help key is a function name, the function type, arguments,
+    and comments are printed.}
+
+{;; The top level functions (all FEXPRS) to invoke help are:
+    
+    (HELP key1 key2 ..)         Typically only a single key will be used.
+          HELP provides help in the null context. If more than a single
+	  module is indexed, HELP asks which module help is desired for.
+    
+    (HELP SELECTOUT)
+    (HELP DO UNTIL)
+    
+    (EXAMPLE key1 key2 ..)      Looks for an example of the use of key.
+          This is just an entry in the help file keyed by key-EXAMPLE.
+
+    (EXAMPLE SELECTOUT)
+    (EXAMPLE)                   Uses the previous HELP key.
+
+    (HELPM module key1 key2 ..) Provides help for key in the context of
+          module.
+
+    (HELPM EDIT ABORT)
+    (HELPM BREAK ABORT)                                            }
+
+{;; Non-fexpr forms.
+
+    (HELP:HELP key module)      This key corresponds to the concatenation
+          of keys provided to HELP. (HELP DO UNTIL) becomes
+	  (HELP:HELP 'DO-UNTIL NIL). (EXAMPLE FOO) becomes
+	  (HELP:HELP 'FOO-EXAMPLE NIL).
+
+    (HELP:EXAMPLE key module)   Concatenates key to -EXAMPLE and calls
+          HELP:HELP.                                                   }
+
+
+{;; Index creation.
+
+    (HELP:CREATE-INDEX-FILE sourcefile indexfile module)
+          Sourcefile is expected to be in help file format. See below.
+	  Creates an index into sourcefile on indexfile. Module is
+	  of course what module this help file is for. May be NIL.
+	  A list of keys is saved as the value of the name of the
+	  sourcefile minus directory and extension.
+	  Indexfile can simply be DSKINed. Note that it depends on
+	  the functions MERGEPROPS and EQUALSTR, so HELPER should
+	  be loaded first.
+
+    A helpfile consists of a sequence of help entries. A help entry
+    begins with a control-K. This is followed by either a keyword
+    or a list of keywords under which the following text is to
+    be indexed. In order for queries like (HELP DO UNTIL) to work
+    the key needs to be DO-UNTIL. A help entry is terminated by the
+    next control-K, indicating another entry, or an end of file.   }
+
+
+(DF HELP (FOO)
+ {;; Top level fexpr invocation of help system}
+ {;; FOO - Unevaluated list of atoms.  If more than one they are
+          concatenated, seperated by dashes. FOO is the keyword.}
+ (SETQ FOO (COND [(CDR FOO) (HELP:ATCAT-DASH FOO)] [T (CAR FOO)]))
+ (HELP:HELP FOO NIL))
+
+(DF HELPM (FOO)
+ {;; Fexpr that takes a module followed by key}
+ (WITH (MODULE)
+       (SETQ MODULE (CAR FOO))
+       (SETQ FOO (CDR FOO))
+       (SETQ FOO (COND [(CDR FOO) (HELP:ATCAT-DASH FOO)] [T (CAR FOO)]))
+       (HELP:HELP FOO MODULE)))
+    
+(DF EXAMPLE (FOO)
+    {;; Looks up keyword concatenated with -EXPLAIN.}
+    (COND [FOO (SETQ FOO (HELP:ATCAT-DASH (NCONC1 FOO 'EXAMPLE)))
+	       (HELP:HELP FOO NIL)]
+	  [HELP:PREVIOUS-KEY
+	   (SETQ FOO (HELP:ATCAT-DASH (LIST HELP:PREVIOUS-KEY 'EXAMPLE)))
+	   (HELP:HELP FOO NIL)]
+	  [T (MSG T "No previous key" T)]))
+
+(DE HELP:EXAMPLE (FOO MODULE)
+    {;; Looks up keyword concatenated with -EXPLAIN.}
+    (COND [FOO (SETQ FOO (HELP:ATCAT-DASH (LIST FOO 'EXAMPLE)))
+	       (HELP:HELP FOO MODULE)]
+	  [HELP:PREVIOUS-KEY
+	   (SETQ FOO (HELP:ATCAT-DASH (LIST HELP:PREVIOUS-KEY 'EXAMPLE)))
+	   (HELP:HELP FOO MODULE)]
+	  [T (MSG T "No previous key" T)]))
+	  
+(DE HELP:HELP (FOO MODULE)
+ {;; Functional description: - Provides help for keywords, function definitions
+     and variables.  Help may be provided 
+     (1) By info on a file, pointed to by a property HELP-FILE-INFO whose
+         value is a list of the form ((MODULE (FILE START STOP))*), where 
+         the MODULE is provided for multiple entries. There may be multiple
+         entries for a single module. MODULE may also be NIL, which
+         indicates that the creator of the index did not bother to provide
+         a module name.
+     (2) By extracting comments from a function definition. 
+     (3) If all of these fail there is a somewhat dubious attempt to
+         provide info about the type of the value of FOO interpreted as a 
+         variable.}
+ {;; Interface for: - Help system}
+ {;; }
+ {;; Parameters :}
+     {;; FOO - Unevaluated list of atoms.  If more than one they are
+	  concatenated, seperated by dashes. FOO is the keyword.}
+ {;; }
+ {;; Index keys .  .  .  .  : - HELP}
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ (WITH (HELP)
+       (OR (GET 'HELP 'HELP-FILE-INFO)
+	   (MSG 0 "Loading index files..." T)
+	   (WITH (DSKIN) (DSKIN "ELISP:ELISP.NDX"
+			        "ELISP:HELPER.INDEX")))
+       (COND [(NOT (ATOM FOO))
+	      (MSG T "Help only available for atoms" T)
+	      FOO]
+	     [(AND (SETQ HELP:PREVIOUS-KEY FOO) NIL)
+	      {;; Bogus path for side effect}]
+	     [(AND (SETQ HELP (GET FOO 'HELP-FILE-INFO))
+		   (HELP:CHOOSE-HELP FOO HELP MODULE))
+	      FOO]
+	     [MODULE
+	      (MSG T "No help available for " FOO " in " MODULE T)]
+	     [(SETQ HELP (FUNDEF FOO))
+	      (MSG T FOO " - vars: " (CADDR HELP) " - type: " (CAR HELP) T)
+	      (HELP:PRINT-COMMENTS HELP)]
+	     [(BOUNDP FOO)
+	      (TTYMSG T 
+		      FOO 
+		      " is " 
+		      (E (PRINC
+			  (PROGN (SETQ FOO (EVAL FOO))
+				 (COND [(NUMBERP FOO) "a number."]
+				       [(STRINGP FOO) "a string."]
+				       [(EQ FOO T) "T."]
+				       [(NULL FOO) "NIL."]
+				       [(CONSP FOO) "a list."]
+				       [T "something unusual."]))))
+		      T)]
+	     [T (TTYMSG T "No help info for " FOO ". It is not a function" T
+			"Nor does it have a value." T)])))
+
+(DE HELP:CHOOSE-HELP (KEY INDEX MODULE)
+    {;; If MODULE then
+           (if entries indexed under it then print the info else NIL)
+	elif one entry then print it
+        else ask the user which he wants to see}
+    (COND [(AND MODULE
+		(SETQ INDEX
+		      (SUBSET (F:L (IND)
+				   (AND (CONSP IND)
+					(EQ (CAR IND) MODULE))) INDEX)))
+	   (MAPC (F:L (IND)
+		      (HELP:CHECK-AND-PRINT (CADR IND)))
+		 INDEX) T]
+	  [MODULE NIL]
+	  [(NULL (CDR INDEX))
+	   (HELP:CHECK-AND-PRINT (CADAR INDEX))]
+	  [T (HELP:ASK-USER-FOR-MODULE KEY INDEX)]))
+
+(DE HELP:ASK-USER-FOR-MODULE (KEY INDEXS)
+    (PROG (N)
+	  (SETQ N 1)
+	  (MSG T "Help for " KEY " is available under the following:" T)
+	  (MAPC (F:L (IND)
+		     (AND (CONSP IND)
+			  (MSG T " (" N ") " (CAR IND)))
+		     (SETQ N (ADD1 N)))
+		INDEXS)
+	  (MSG T T "Which would you like to see?" T
+	           "Type number, name, or NONE   -> ")
+	A (SETQ N (READ))
+	  (COND [(NUMBERP N)
+		 (COND [(SETQ N (CAR (NTH INDEXS N)))
+			(RETURN (HELP:CHECK-AND-PRINT (CADR N)))]
+		       [T (MSG T "No such key. Try again -> ")
+			  (GO A)])]
+		[(MEMQ N '(NONE /n/o/n/e)) (RETURN)]
+		[(SETQ N (ASSOC N INDEXS))
+		 (RETURN (HELP:CHECK-AND-PRINT (CADR N)))]
+		[T (MSG T "No such key. Try again -> ")
+		   (GO A)])))
+
+(DE HELP:CHECK-AND-PRINT (INDEX)
+    {;; Ensures that INDEX is of the form (FILE START LENGTH) and
+	prints the corresponding info. If it fails, returns NIL.}
+    (COND [(AND [LOOKUP (CAR INDEX)]
+		[NUMBERP (CADR INDEX)]
+		[NUMBERP (CADDR INDEX)])
+	   (HELP:COPYBYTES (CAR INDEX) (CADR INDEX) (CADDR INDEX))
+	   (TERPRI) T]
+	  [T NIL]))
+
+(DE HELP:CREATE-INDEX-FILE (SOURCEFILE INDEXFILE MODULE)
+    {;; Using SOURCEFILE create a help index and save the results
+	on INDEXFILE. To restore an index just DSKIN INDEXFILE.
+	MODULE permits the partitioning of indices, i.e. the 
+	keyword ABORT might means something different in an
+	editor than some other program component.}
+    (HELP:SAVE-INDEX INDEXFILE
+		     (EVAL (HELP:CREATE-HELP-INDEX SOURCEFILE MODULE))))
+
+(DE HELP:CREATE-HELP-INDEX (FILE MODULE)
+ {;; Functional description: - Creates the index for file.  The name of the
+     index is the name of the file minus extension and dir.  The index is
+     a list of indicators, which have their indexing information stored 
+     under the property HELP-FILE-INFO, as expected by HELP.  The help
+     file should be formatted with cntrl-K between entries, immediately 
+     followed by the indexing keyword or list of keywords.}
+ {;; Returns: - Index name}
+ {;; Interface for: - HELP}
+ {;; }
+ {;; Index keys .  .  .  .  : - help files indexing}
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ {;; Patch by Michael K.  Smith on 12-Oct-81}
+ (PROG (INDEXNAME INDICATORS CHANNEL OLD-CHANNEL EOF IND START STOP)
+       (SETQ INDEXNAME (HELP:MKATOM (JFNS FILE 001000000000Q)))
+       (COND [(LOOKUP FILE)]
+	     [T (TTYMSG T "Help file " FILE " does not exist." T)
+		(RETURN NIL)])
+       (SETQ CHANNEL (OPENF FILE '(IN OLD)))
+       (SETQ OLD-CHANNEL (SELECTIN CHANNEL NIL))
+       (USETI -1)
+       (SETQ EOF (UGETI))
+       (USETI 0)
+  LOOP (DO UNTIL (OR [EQP EOF (UGETI)] [EQP (TYI) 11]) T)
+       (SETQ STOP (- (UGETI) 2))
+       (COND [(AND IND (CONSP IND))
+	      (MAPC (F:L (A) (ADDPROP A
+				      (LIST MODULE (LIST FILE START STOP))
+				      'HELP-FILE-INFO))
+		    IND)
+	      (SETQ INDICATORS (APPEND IND INDICATORS))
+	      (TTYMSG IND)]
+	     [IND (ADDPROP IND
+			   (LIST MODULE (LIST FILE START STOP))
+			   'HELP-FILE-INFO)
+		  (TTYMSG IND)
+		  (SETQ INDICATORS (CONS IND INDICATORS))])
+       (DO WHILE (AND (NOT (EQP EOF (UGETI)))
+		      (MEMQ (PEEKC) '(32 10 13 9)))
+	         (TYI))
+       (COND [(LESSP (- EOF (UGETI)) 1)
+	      (SELECTIN OLD-CHANNEL T)
+	      (CLOSEF CHANNEL)
+	      (SET INDEXNAME INDICATORS)
+	      (TTYMSG T "Index for " FILE " is " INDEXNAME "." T)
+	      (RETURN INDEXNAME)])
+       (SETQ IND (READ))
+       (SETQ START (UGETI))
+       (TTYMSG T "ind = " IND " " START " ")
+       (COND [(OR (NUMBERP IND)(STRINGP IND)) (SETQ IND NIL)])
+       (GO LOOP)))
+
+(DE HELP:COPYBYTES (FILE START STOP)
+ {;; Functional description: - Copys the characters in FILE from START to STOP
+     to the current output channel.}
+ {;; Interface for: - HELP}
+ {;; }
+ {;; Parameters :}
+     {;; FILE - file name.  In ucilsp a dotted pair.  In elisp a string.}
+     {;; START - Integer indicating byte position to start printing from}
+     {;; STOP - Integer indicating last character to be printed.}
+ {;; }
+ {;; Index keys .  .  .  .  : - HELP copy files}
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ (PROG (CHANNEL CUR-CH)
+       (COND [(NOT (LOOKUP FILE)) (TTYMSG T "No such file as " FILE T)]
+	     [(SETQ CHANNEL (OPENF FILE '(IN OLD ERROR)))
+	      (WITHIN T CHANNEL
+	          (AND [NULL STOP] [DO (USETI -1) (SETQ STOP (UGETI))])
+	          (AND [NULL START] [SETQ START 0])
+	          (SETPOS CHANNEL START)
+	          (RPTQ (ADD1 (- STOP START))
+		        (COND [(EQ (SETQ CUR-CH (TYI)) 14Q)
+			       (INCR RPTN)
+			       (DO UNTIL (MEMQ (TYI) '(12Q 15Q))
+				         (INCR RPTN))
+			       (DO WHILE (MEMQ (SETQ CUR-CH (TYI)) '(12Q 15Q))
+				         (INCR RPTN))])
+		        (TYO CUR-CH)))]
+	     [T (TTYMSG T "Unable to open file - " FILE T)])))
+
+(DE HELP:PRINT-ONE-COMMENT (L)
+ {;; Functional description: - Prints comment without semicolons.}
+ {;; }
+ {;; Index keys .  .  .  .  : - HELP comment}
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ (PROG (N)
+       (COND [(NULL L) (RETURN)])
+       (SETQ L (CDR (AEXPLODEC L)))
+       (RPLACA (LAST L) 32)
+       (SETQ N 60)
+  LOOP (COND [(OR [NULL L] [EQUAL L '(41)]) (RETURN)])
+       (TERPRI)
+       (RPTQ N (AND L (CONSP L)(TYO (CAR L))) (SETQ L (CDR L)))
+       (DO UNTIL (OR [NULL L] [MEMQ (CAR L) '(32 10 13)] [EQUAL L '(41)])
+	         (TYO (CAR L))
+		 (SETQ L (CDR L)))
+       (GO LOOP)))
+
+(DE HELP:PRINT-COMMENTS (L)
+ {;; Functional description: - Prints a set of comments for L}
+ {;; }
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ (COND [(NULL L) NIL]
+       [(NOT (CONSP L)) NIL]
+       [(MEMQ (CAR L) '(COMMENT ; ;; ;;;)) (HELP:PRINT-ONE-COMMENT (CDR L))]
+       [T (HELP:PRINT-COMMENTS (CAR L)) (HELP:PRINT-COMMENTS (CDR L))]))
+
+(DE HELP:MKATOM (A)
+ {;; Author .  .  .  .  .  .  : Michael K.  Smith}
+ {;; Date .  .  .  .  .  .  .  : 12-Oct-81}
+ (COND [(NOT (STRINGP A)) A] [T (READLIST (EXPLODEC A))]))
+
+(DE HELP:ATCAT-DASH (L)
+ {;; Author . . . . . . :  Michael K. Smith}
+ {;; Date . . . . . . . :  14-Oct-81}
+ (AND (CDR L) (ATOM (CDR L)) (SETQ L (LIST (CAR L) (CDR L))))
+ (READLIST (APPEND (EXPLODE (CAR L))
+		   (MAPCAN (F:L (A) (CONS '- (EXPLODE A))) (CDR L)))))
+
+(DE HELP:SAVE-INDEX (FILE INDEX)
+ {;; Functional description:  -  Saves a help index created by
+     HELP:CREATE-HELP-INDEX.}
+ {;; Interface for:  -  HELPER}
+ {;; }
+ {;; Parameters :}
+     {;; FILE -  A file name}
+     {;; INDEX -  The list of indexed keywords returned by
+	  HELP:CREATE-HELP-INDEX}
+ {;; }
+ {;; Index keys .  .  .  .  :  -  help helper}
+ {;; Author . . . . . . :  Michael K. Smith}
+ {;; Date . . . . . . . :  14-Oct-81}
+ (WITH (OLDCHAN)
+       (SETQ OLDCHAN (SELECTOUT (OPENF FILE '(OUT NEWVERSION))))
+       (MAPC (F:L (IND)
+		  (MSG T "(HELP:MERGEPROPS " IND " "
+		         (GET IND 'HELP-FILE-INFO)
+			 " HELP-FILE-INFO)" ))
+	     INDEX)
+       (TERPRI)
+       (SELECTOUT OLDCHAN T)))
+
+(DF HELP:MERGEPROPS (/./.F)
+    (WITH (MEMBFN A VALUE IND)
+	  (SETQ A (CAR /./.F))
+	  (SETQ VALUE (CADR /./.F))
+	  (SETQ IND (CADDR /./.F))
+	  (SETQ MEMBFN 'HELP:MEMBERSTR)
+	  (PUTPROP A (UNION VALUE (GET A IND)) IND)))
+
+(COND [(NULL (FUNDEF 'HELP:EQ-STRINGS)) (ALIAS 'HELP:EQ-STRINGS 'EQSTR)])
+
+(DE HELP:EQUALSTR (X Y)
+ (COND [(OR (NUMBERP X)(NUMBERP Y)) (EQUAL X Y)]
+       [(OR [ATOM Y] [STRINGP Y])
+	(COND [(OR [ATOM X] [STRINGP X]) (HELP:EQ-STRINGS X Y)] [T NIL])]
+       [(OR [ATOM X] [STRINGP X])
+	(COND [(OR [ATOM Y] [STRINGP Y]) (HELP:EQ-STRINGS X Y)] [T NIL])]
+       [(AND [CONSP X] [CONSP Y])
+	(AND [HELP:EQUALSTR (CAR X) (CAR Y)] [HELP:EQUALSTR (CDR X) (CDR Y)])]
+       [(OR [NUMBERP X] [NUMBERP Y]) (EQUAL X Y)]
+       [T (TTYMSG T "Bad call to EQUALSTR.  Funny types of objects." T
+		  "arg 1 = " X
+		  T "arg 2 = " Y T)
+	  (ERROR)]))
+
+(DE HELP:MEMBERSTR (A L)
+    (SOME (F:L (B) (HELP:EQUALSTR A B)) L))
+
+(SETQ HELP "Try (HELP HELP).")
+
+(SETQ HELP:PREVIOUS-KEY NIL)
+
+(DEFV HELPERFNS (HELP HELP:HELP HELP:CREATE-HELP-INDEX HELP:COPYBYTES
+		      HELP:SAVE-INDEX HELP:PRINT-ONE-COMMENT
+		      HELP:PRINT-COMMENTS HELP:MKATOM HELP:ATCAT-DASH))
+
+(DEFV HELPERVARS NIL)
+
+(NOCOMPILE
+(DEFV HELPERCOMS ((FNS * HELPERFNS) (VARS * HELPERVARS)))
+)
+    

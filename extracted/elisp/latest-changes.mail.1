@@ -1,0 +1,11 @@
+The latest version of Elisp makes the characters # ` and , not be atom
+delimiters.  Because of this ASSOC/# can now be written ASSOC#.
+
+Beware; # is a read macro and must still be "slashified" to be used as
+the first character of an atom name.  Thus the editor command ## is
+written /##.
+
+We'd like to remove ASSOC-EQUAL, which is a synonym for ASSOC#.  Is
+anyone using it?
+
+(Ron)

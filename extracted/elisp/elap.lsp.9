@@ -1,0 +1,388 @@
+| -*-Lisp-*- this is the LAP for ELISP
+|  
+
+|
+|
+|                COPYRIGHT (c) 1981
+|                CHARLES L. HEDRICK
+|
+|     THIS  SOFTWARE  IS  FURNISHED  UNDER AN AGREEMENT FOR MUTUAL
+|     SOFTWARE EXCHANGE, AND  MAY  BE  USED  AND  COPIED  ONLY  IN
+|     ACCORDANCE  WITH  THE  TERMS  OF SUCH AGREEMENT AND WITH THE
+|     INCLUSION OF THE ABOVE COPYRIGHT NOTICE.   THIS SOFTWARE  OR
+|     ANY OTHER COPIES THEREOF MAY NOT  BE  PROVIDED  OR OTHERWISE
+|     MADE  AVAILABLE  TO  ANY  OTHER  PERSON.   NO  TITLE  TO AND
+|     OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+|
+|     THE INFORMATION  IN  THIS  SOFTWARE  IS  SUBJECT  TO  CHANGE
+|     WITHOUT  NOTICE  AND SHOULD NOT BE CONSTRUED AS A COMMITMENT
+|     BY CHARLES HEDRICK OR RUTGERS UNIVERSITY.
+
+
+(special codelist codewords constants elapass constlist
+	 jconstlist vconstlist labelist lclfns fnclis stkoffset)
+
+(elisp:
+(DM PUSH (LIS) (LIST 'SETQ (CADR LIS)
+		     (LIST 'CONS (CADDR LIS) (CADR LIS))))
+(DM INCR (LIS) (LIST 'SETQ (CADR LIS)
+		     (LIST 'ADD1 (CADR LIS))))
+)
+
+(require (macros.lsp))
+
+(df elap (coddle)
+    (elap1 (cond ((atom (car coddle)) (cdr coddle))
+		 (t coddle)))
+    nil)
+
+(de elap1 (codelist)
+ (let ((codewords 0) (constants 0) elapass x y z fnclis (stkoffset 0)
+       constlist jconstlist vconstlist labelist lclfns)
+      (setq elapass 0)
+      (mapc 'eval codelist)
+      (setq x (%allocate-bps constants codewords))
+      (setq codewords (+i (+ constants x)))
+      (setq constants x)
+      (coderel codewords)
+      (condep)
+      (setq elapass 1)
+      (mapc 'eval codelist)
+      (apply/# 'remob labelist)
+      (mapx lclfns (remprop x 'relad))
+      (mapx fnclis (apply '%set-function-entry x))
+      fnclis))
+
+(special tempreg)
+
+(special %reg-p %reg-o1 %reg-o0 %reg-q %past-reg-q %reg-n %reg-w2 %larg)
+
+(de %rh (n) (boole 1 n 777777q))
+
+(setq tempreg 6)
+
+(setq %reg-p (get 'p 'sym))		| regular PDL for fn linkage
+(setq %reg-o1 (get 'o1 'sym))		| first of the five LISP object regs
+(setq %reg-o0 (-i (get 'o1 'sym)))	| for computing the others
+(setq %reg-q (get 'q 'sym))		| the value stack for locals
+(setq %past-reg-q (lsh (get 'q 'sym) 18))  | in lh for references
+(setq %reg-n (get 'n 'sym))		| for number of args
+(setq %reg-w2 (get 'w2 'sym))		| for jsp links to internals
+(setq %larg (+ (lsh (+ 20q %reg-p) 18) (%rh -1)))
+		|  assembles "@-1(P)" for referring to LSUBR args
+
+(special %jsp %adjsp %pushj %popj %movei %move %movem %jrst %camn %came
+	 %jumpe %jumpn %setam %push %tlnn %tlne %tdzn %caia)
+
+
+(mapc 'set
+      '(%jsp	%adjsp	%pushj	%popj	%movei	%move	%movem	
+	%jrst	%camn	%came	%jumpe	%jumpn	%setam	%push
+	%tlnn	%tlne	%tdzn	%caia)
+      '(265q 	105q	260q	263q	201q	200q	202q	
+	254q	316q	312q	322q	326q	426q	261q	
+	607q	603q	636q	304q))
+
+(dm dlm (form) `(df ,(cadr form) (u)
+		   | the line below is for debugging
+		   |(and (eq elapass 1) (msg t 9 ";" 5 (cons ',(cadr form) u)))
+		    (selectq elapass ,,(cddr form) nil)))
+
+(dlm 	*Allocate	|  (n) allocate stack frame of n words (adjsp n)
+ (0 (if (=0 (car u)) () (cinst 1)))
+ (1 (if (=0 (car u)) () (dinst %adjsp %reg-q (car u)))))
+
+(dlm	*Abscond	|  (n) deallocate and return (adjsp -n)
+ (0 (if (=0 (car u)) (cinst 1) (cinst 2)))
+ (1 (if (=0 (car u)) () (dinst %adjsp %reg-q (%rh (minus (car u)))))
+    (dinst %popj %reg-p 0)))
+
+(dlm	*Release	|  (n) deallocate only
+ (0 (if (=0 (car u)) () (cinst 1)))
+ (1 (if (=0 (car u)) () (dinst %adjsp %reg-q (%rh (minus (car u)))))
+    (if (minusp (setq stkoffset (- stkoffset (car u))))
+	(error "stack offset mismatch"))))
+
+(dlm	*Entry		|  (name type nargs) entry point to function name
+			||  of type type with nargs args
+			||  assemble nothing for an subr of fsubr of 1 arg,
+			||  call %set-bcp    for an fsubr of 2 args,
+			||  jsp w2,%lexpr-entry  for an lsubr.
+ (0 (put (car u) codewords 'relad) (push lclfns (car u))
+    (cond [(eq 'lsubr (cadr u)) (cinst 1)]
+	  [(and (eq 'fsubr (cadr u)) (eq 2 (caddr u))) (cinst 1)]))
+ (1 (push fnclis (list (car u) codewords (cadr u) (caddr u)))
+    (cond [(eq 'lsubr (cadr u))
+	   (dinst %jsp %reg-w2 (intentry '%lexpr-entry))]
+	  [(and (eq 'fsubr (cadr u)) (eq 2 (caddr u)))
+	   (dinst %pushj %reg-p (intentry '%set-bcp))])))
+
+(dlm	*Store		|  (reg floc) store reg into floc (movem)
+ (0 (cinst 1) (cwhat (cadr u) nil))
+ (1 (dinst %movem (reg (car u)) (dwhat (cadr u) nil))))
+
+(dlm	*Jump		|  (addr) unconditional (jrst)
+ (0 (cinst 1)) (1 (dinst %jrst 0 (dlabel (car u)))))
+
+(dlm 	*Jumpc		|  (addr reg type) jump is exp is of type type (?)
+ (0 (selectq (caddr u)
+	[Atom (cinst 3)]
+	[Consp (cinst 4)]
+	[Litatom (cinst 2)]
+	[error "Illegal type in *JUMPC"]))
+ (1 (selectq (caddr u)
+	[Atom
+	 (dinst %tlnn (reg (cadr u)) (%rh 740000q))
+	 (dinst %tlnn (reg (cadr u)) (%rh 020000q))]
+        [Consp
+	 (dinst %tlnn (reg (cadr u)) (%rh 740000q))
+	 (dinst %tlnn (reg (cadr u)) (%rh 020000q))
+	 (dinst %caia 0 (%rh 0))]
+        [Litatom
+	 (dinst %tlnn (reg (cadr u)) (%rh 760000q))]
+	[error "Illegal type in *JUMPC"])
+    (dinst %jrst 0 (dlabel (car u)))))
+
+(dlm 	*Jumpnc		|  (addr reg type) jump is exp is of type type (?)
+ (0 (selectq (caddr u)
+	[Consp (cinst 3)]
+	[Atom (cinst 4)]
+	[Litatom (cinst 2)]
+	[Error "Illegal type in *JUMPC"]))
+ (1 (selectq (caddr u)
+	[Consp
+	 (dinst %tlnn (reg (cadr u)) (%rh 740000q))
+	 (dinst %tlnn (reg (cadr u)) (%rh 020000q))]
+        [Atom
+	 (dinst %tlnn (reg (cadr u)) (%rh 740000q))
+	 (dinst %tlnn (reg (cadr u)) (%rh 020000q))
+	 (dinst %caia 0 (%rh 0))]
+        [Litatom
+	 (dinst %tlne (reg (cadr u)) (%rh 760000q))]
+	[Error "Illegal type in *JUMPC"])
+    (dinst %jrst 0 (dlabel (car u)))))
+
+(dlm	*Jumpnil	|  (addr reg) jump if reg is Nil (jumpe)
+ (0 (cinst 1)) (1 (dinst %jumpe (reg (or (cadr u) 1)) (dlabel (car u)))))
+
+(dlm	*Jumpt		|  (addr reg) jump if reg nonNil (jumpn)
+ (0 (cinst 1)) (1 (dinst %jumpn (reg (or (cadr u) 1)) (dlabel (car u)))))
+
+(dlm	*Jumpe		|  (addr exp) jump if r1 eq exp (camn/jrst)
+ (0 (cinst 2) (cwhat (cadr u) nil))
+ (1 (dinst %camn %reg-o1 (dwhat (cadr u) nil))
+    (dinst %jrst 0 (dlabel (car u)))))
+
+(dlm	*Jumpn		|  (addr exp) jump if r1 neq exp (came/jrst)
+ (0 (cinst 2) (cwhat (cadr u) nil))
+ (1 (dinst %came %reg-o1 (dwhat (cadr u) nil))
+    (dinst %jrst 0 (dlabel (car u)))))
+
+(dlm	*Push		|  (reg exp) push exp on reg (a pdl)
+ (0 (cinst 1) (cwhat (cadr u) nil))
+ (1 (dinst %push (reg (car u)) (dwhat (cadr u) nil))
+    (incr stkoffset)))
+
+(dlm	*Lbl		|  (addr) you are here
+ (0 (set (car u) codewords)
+    (if (memq (car u) labelist)
+	(error "multiply defined label")
+	(push labelist (car u))))
+ (1 (or (eq (eval (car u)) (%rh codewords))
+	(error (concat "Label mismatch at " (car u))))))
+
+(dlm	*Lambind	|  (regs alst) bind lambda vars from regs
+ (0 (cinst (+i (length (car u)))) (mapx (cadr u) (cvconst (car x))))
+ (1 (dinst %jsp %reg-w2 (intentry '%lambdabind (length (car u))))
+    (mapxy (car u) (cadr u)
+	   (dinst %setam (reg x) (dvconst (car y))))))
+
+(dlm	*Progbind	|  (alst) bind prog vars (to Nil)
+ (0 (cinst (+i (length (car u)))) (mapx (car u) (cvconst (car x))))
+ (1 (dinst %jsp %reg-w2 (intentry '%lambdabind (length (car u))))
+    (mapx (car u) (dinst %setam 0 (dvconst (car x))))))
+
+(dlm	*Freerstr	|  (alst) unbind variables in alst
+ (0 (if (car u) (cinst 1)))
+ (1 (if (car u) (dinst %pushj %reg-p (intentry '%unbind (length (car u)))))))
+
+(dlm	*Freerstre	|  (alst) unbind variables in alst
+ (0 (if (car u) (cinst 1)))
+ (1 (if (car u) (dinst %jrst 0 (intentry '%unbind (length (car u)))))))
+
+	|  these macros must only change the regs they load
+(dlm	*Load		|  (reg exp) load exp into reg (move)
+ (0 (cinst 1) (cwhat (cadr u) (car u)))
+ (1 (dinst %move (reg (car u)) (dwhat (cadr u) (car U)))))
+
+	|  the following do not protect the regs
+(dlm	*Link		|  (fn type nargs) function call (pushj)
+ (0 (cinst (if (eq (cadr u) 'unknown) 2 1)) (cjconst u))
+ (1 (if (eq (cadr u) 'unknown)
+        (dinst %movei %reg-n (caddr u)))
+    (dinst %pushj %reg-p (djconst u))))
+
+(dlm	*Linke		|  (fn type nargs n) dealloc-link-exit (jrst hack)
+ (0 (cinst (plus 1
+	         (if (=0 (cadddr u)) 0 1)
+		 (if (eq (cadr u) 'unknown) 1 0)))
+    (cjconst u))
+ (1 (if (neq 0 (cadddr u))
+	(dinst %adjsp %reg-q (%rh (minus (cadddr u)))))
+    (if (eq (cadr u) 'unknown)
+        (dinst %movei %reg-n (caddr u)))
+    (dinst %jrst 0 (djconst u))))
+
+(de cinst (n) (setq codewords (+ n codewords)))
+
+(de dinst (inst reg efad)
+    (%deposit-instruction codewords inst reg efad)
+|   for debugging purposes:
+|    (msg 0 codewords "/   " inst 1)
+|    (if (neq reg 0) (msg reg ","))
+|    (princ efad)
+    (incr codewords))
+
+(de intentry (x y) (or (get x (or y 'sym))
+		       (error "invalid symbol lookup")))
+
+(de reg (x) (cond [(null x) 0]
+		  [(regp x) (+ x %reg-o0)]
+		  [(eq x 'q) %reg-q]
+		  [(eq x 'p) %reg-p]
+		  [(eq x 'n) %reg-n]
+		  [(eq x 'w2) %reg-w2]
+		  [t (error "invalid reg")]))
+
+(de regp (x) (memq x '(1 2 3 4 5)))
+
+(de dpast (off reg) | assemble "off(reg)"
+    (+ (%rh off) (lsh reg 18)))
+
+(de cconst (con)
+    (or (null con)
+	(assoc con constlist)
+	(push constlist (cons con (-i (incr constants))))))
+
+(de dconst (con) (or (cdr (assoc con constlist)) 0))
+
+(de dlabel (lab) (eval lab))
+
+(de coderel (codad)
+    (setq codad (%rh codad))
+    (mapx labelist (set x (+ codad (eval x))))
+    (mapx lclfns (put x (+ codad (get x 'relad)) 'relad)))
+
+(de condep ()
+    (let ((const0 (%rh constants)))
+	 (mapx constlist
+	       (%deposit-object-pointer (+ constants (cdr x)) (car x))
+	       (rplacd x (+ const0 (cdr x))))
+	 (mapx vconstlist
+	       (%deposit-value-reference (+ constants (cdr x)) (car x))
+	       (rplacd x (+ const0 (cdr x))))
+	 (mapx jconstlist
+	       (%deposit-function-linkage (+ constants (cdr x)) (car x))
+	       (rplacd x (+ const0 (cdr x))))))
+
+(de cjconst (conl)
+    (let ((con (car conl)) (typ (cadr conl)))
+	 (or (and (null con) (error "null address object"))
+	     (eq typ 'internal)
+	     (get con 'relad)
+	     (assoc con jconstlist)
+	     (push jconstlist (cons con (-i (incr constants)))))))
+
+(de djconst (conl)
+    (let ((con (car conl)) (typ (cadr conl)))
+	 (or (get con 'relad)
+	     (and (eq typ 'internal) (get con 'sym))
+	     (+ 20000000q (cdr (assoc con jconstlist))))))
+
+(de cvconst (con)
+    (or (null con)
+	(assoc con vconstlist)
+	(push vconstlist (cons con (-i (incr constants))))))
+
+(de dvconst (con)
+    (if con (+ 20000000q (cdr (assoc con vconstlist)))
+	0))
+
+| the WHAT can be a (quote foo) [constant ref],
+|   (fluid foo) [variable ref],
+|   positive number [register],
+|   negative number [stack reference],
+|   (car r) or (cdr r) where r is a register
+|   (getvec-nn r) where R is a register
+
+| The LAP within the compiler knows what is going on with GETVEC-nn
+| because it has a property that gives nn.  However here we don't
+| have any clues other than what is in the file, so we use string
+| processing routines to look for the GETVEC prefix (yuck).  To
+| speed things up, once we find it we create a property ourselves,
+| so we only have to use string handling once per NN.
+
+(de cwhat (ref target)
+    (cond [(numberp ref)]
+	  [(eq ref '%larg)]
+	  [(atom ref) (error "unknown ref type")]
+	  [(eq 'quote (car ref)) (cconst (cadr ref))]
+	  [(eq 'fluid (car ref)) (cvconst (cadr ref))]
+	  [(memq (car ref) '(car cdr)) t]
+	  [(memq (car ref) '(not null))
+	   (cond [(null target) (cinst 3)]
+		 [(eq target (cadr ref)) (cinst 1)]
+		 [T (cinst 2)])]
+	  [(eq 'consp (car ref))
+	   (cond [(null target) (cinst 4)]
+		 [(eq target (cadr ref)) (cinst 2)]
+		 [T (cinst 3)])]
+	  [(get (car ref) vecfun) t]
+	  [(car (consp (PRINT (errset (eqstr (substring (car ref) 1 7) "GETVEC-") nil))))
+	   (put (car ref) (readlist (explodec (substring (car ref) 8 -1))) vecfun)
+	   t]
+	  [t (error "unknown ref type")]))
+
+(setq vecfun (maknam (explode 'VECFUN)))
+
+(de dwhat (ref target)
+    (cond [(numberp ref) (if (gt ref 0) (reg ref)
+			     (- (+ (%rh ref) %past-reg-q) stkoffset))]
+	  [(eq ref '%larg) %larg]
+	  [(atom ref) (error "unknown ref type")]
+	  [(eq 'quote (car ref)) (dconst (cadr ref))]
+	  [(eq 'fluid (car ref)) (dvconst (cadr ref))]
+	  [(eq 'car (car ref)) (dpast 0 (reg (cadr ref)))]
+	  [(eq 'cdr (car ref)) (dpast 1 (reg (cadr ref)))]
+	  [(get (car ref) vecfun)
+	   (dpast (get (car ref) vecfun) (reg (cadr ref)))]
+	  [(memq (car ref) '(not null))
+	   (cond [(null target)
+		  (dinst %move (reg tempreg) (reg (cadr ref)))
+		  (dinst %tdzn (reg tempreg) (reg tempreg))
+		  (dinst %move (reg tempreg) (dwhat ''T))
+		  (reg tempreg)]   | final result is in tempreg
+		 [(eq target (cadr ref))
+		  (dinst %tdzn (reg target) (reg target))
+		  (dwhat ''T)]
+		 [T
+		  (dinst %move (reg target) (reg (cadr ref)))
+		  (dinst %tdzn (reg target) (reg target))
+		  (dwhat ''T)])]
+	  [(eq 'consp (car ref))
+	   (cond [(null target)
+		  (dinst %move (reg tempreg) (reg (cadr ref)))
+		  (dinst %tlnn (reg tempreg) (%rh 740000q))
+		  (dinst %tlnn (reg tempreg) (%rh 020000q))
+		  (dinst %move (reg tempreg) (%rh 0))
+		  (reg tempreg)]
+		 [(eq target (cadr ref))
+		  (dinst %tlnn (reg target) (%rh 740000q))
+		  (dinst %tlnn (reg target) (%rh 020000q))
+		  0]
+		 [T
+		  (dinst %move (reg target) (reg (cadr ref)))
+		  (dinst %tlnn (reg target) (%rh 740000q))
+		  (dinst %tlnn (reg target) (%rh 020000q))
+		  0])]
+	  [t (error "unknown ref type")]))    

@@ -1,0 +1,1138 @@
+(SPECIAL TOPFLG %LOOKDPTH EDITMACROS USERMACROS /#1 /#2 /#3 UPFINDFLG
+ EDITCOMSL COPYFLG MAXLEVEL FF $%DOTFLG %PREVFN% EDITOPS
+ MAXLOOP TOFLG L LASTWORD OLDPROMPT FINDARG COM0 L0 READBUF
+ LASTP2 LASTP1 UNFIND LCFLG FINDFLAG UNDOLST1 UNDOLST LASTAIL
+ COM COMS MESS ATM MARKLST EDITRACEFN SN *NOPOINT BASE ALLFNS
+ ALLVALS EDITV EDITPLEV COMMENTFLG MACROEXPANSION %SLASH)
+
+(DF /#/# (COMS) ((LAMBDA (L UNDOLST1) (EDITCOMS COMS)) L NIL))
+
+(ALIAS '$$ '/#/#)
+
+[DF EDIT (L) 
+  (COND (L (SETQ L (CAR L)))
+	((SETQ L LASTWORD))
+	(T (TTYMSG 0 "Nothing to edit.") (ERR NIL)))
+  (COND ((NOT (LITATOM L)) (TTYMSG 0 "Can't edit " L ".") (ERR NIL))
+	((NOT (SOME (F:L (X) (COND ((CONSP X) (SETQ X (CAR X))))
+		       (COND ((MEMQ X '(EXPR FEXPR MACRO))
+			      (EQ X (CAR (CONSP (FUNDEF L)))))
+			     ((EQ X 'VALUE)
+			      (BOUNDP L))
+			     ((LITATOM X)
+			      (GET L X))))
+	       PRETTYPROPS))
+	 (TTYMSG 0 L " has no properties on PRETTYPROPS.")
+	 (ERR NIL)))
+ (SETQ LASTWORD L)
+ (%EDITOR-CLEAR-BUFFER)
+ (WITHOUT (%EDITOR-WRITE-CHANNEL)
+	  (APPLY 'PP (LIST L))
+	  (%EDITOR-CLIP-BUFFER NIL))
+ (%EDITOR-RUN-FORK NIL)
+ (WITHIN (%EDITOR-READ-CHANNEL)
+      (ERRSET (PROG NIL
+	   LOOP (PRINC (EVAL (READ)))
+	        (GO LOOP))))
+ (ASCII 0))]
+
+(DF EDITFNS (X)
+  (PROG (Y)
+	(SETQ Y (EVAL (CAR X)))
+     L1 (COND [(NULL Y) (RETURN T)]
+	      [(CONSP (CAR Y))
+	       (COND [(AND [LITATOM (CAAR Y)] [GET (CAAR Y) 'PPCOM])
+		      (APPLY/# 'EDITFNS (CONS (LIST 'QUOTE (CDAR Y)) (CDR X)))])]
+	      [T (ERRSET (APPLY/# 'EDITF (CONS (PRINT (CAR Y)) (CDR X))) ERRORX)]
+	 )
+	(SETQ Y (CDR Y))
+	(GO L1)))
+
+(DF EDITF (X)
+  (PROG (Y FN)
+	(COND [(NULL X) (MSG 0. "= ") (SETQ X (NCONS (PRIN1 LASTWORD)))])
+	(COND [(LITATOM (CAR X))
+	       (COND [(GETL (SETQ FN (CAR X)) '(BROKEN-IN NAMESCHANGED))
+		      (UNBREAK! FN)]
+		     [(SETQ Y (GET FN 'TRACE)) (SETQ FN (CDR Y))])
+	       (COND [(MEMQ (CAR (SETQ Y (FUNDEF FN))) '(EXPR FEXPR MACRO))
+		      (ALIAS FN (EDITE Y (CDR X) (CAR X)))
+		      (SETQ ALLFNS (ENTER (CAR X) ALLFNS))
+		      (RETURN (SETQ LASTWORD (CAR X)))]
+		     [(AND [SETQ Y (GET FN 'VALUE)] [CONSP (CDR Y)]) (GO L1)])]
+	      [(CONSP (CAR X)) (GO L1)])
+	(PRINT (CAR X))
+	(PRINC '"not editable.")
+	(ERR NIL)
+     L1 (MSG 0. "= EDITV")
+	(RETURN (EVAL (CONS 'EDITV X)))))
+
+(DF EDITV (X)
+  (PROG (Y)
+	(COND [(NULL X) (MSG 0. "= ") (SETQ X (NCONS (PRIN1 EDITV)))])
+	(COND [(CONSP (CAR X)) (EDITE (EVAL (CAR X)) (CDR X) NIL) (RETURN T)]
+	      [(AND [LITATOM (CAR X)]
+		    [BOUNDP (CAR X)]
+		    [SETQ Y (EVAL (CAR X))])
+	       (SET (CAR X) (EDITE Y (CDR X) (CAR X)))
+	       (SETQ ALLVALS (ENTER (CAR X) ALLVALS))
+	       (RETURN (SETQ EDITV (CAR X)))]
+	      [T (PRINT (CAR X)) (PRINC '"not editable.") (ERR NIL)])))
+
+(DF EDITP (X)
+  (COND [(NULL X) (MSG 0. "= ") (SETQ X (NCONS (PRIN1 LASTWORD)))])
+  (COND [(CONSP (CAR X)) (MSG 0. "= EDITV") (EVAL (CONS 'EDITV X))]
+	[(LITATOM (CAR X))
+	 (EDITE (PLIST (CAR X)) (CDR X) (CAR X))
+	 (SETQ ALLFNS (ENTER (CAR X) ALLFNS))
+	 (SETQ LASTWORD (CAR X))]
+	[T (PRINT (CAR X)) (PRINC '"not editable.") (ERR NIL)]))
+
+(DE EDITEXPR (X) (COND [(ATOM X) X] [T (EDITE X NIL NIL)]))
+
+(DE EDITE (EXPR COMS ATM)
+  (COND [(PATOM EXPR) (PRINT EXPR) (PRINC '"not editable.") (ERR NIL)]
+	[T (UNMACEXPAND EXPR)
+	   (CAR (LAST (EDITL (NCONS EXPR) COMS ATM NIL NIL)))]))
+
+(DE EDITL (L COMS ATM MARKLST MESS)
+  (PROG	(COM LASTAIL UNDOLST UNDOLST1 FINDFLAG LCFLG UNFIND LASTP1 LASTP2
+	     READBUF L0 COM0 OLDPROMPT FINDARG MACROEXPANSION)
+	(SETQ FINDARG (UNBOUND))
+	(COND [(CONSP (SETQ L (ERRSET (EVAL '(EDITL0)) ERRORX)))
+	       (RETURN (CAR L))]
+	      [T (ERR NIL)])))
+
+(DE EDITL0 NIL
+  (PROG NIL
+	(COND [COMS (COND [(EQ (CAR COMS) 'START) (SETQ READBUF (CDR COMS))]
+			  [(CONSP (ERRSET (EDIT1) ERRORX)) (RETURN L)]
+			  [T (ERR NIL)])])
+	(LINES 0.)
+	(PRINC (OR MESS 'EDIT:))
+	(COND
+	 [(OR [EQ (CAR L)
+		  (CAR (LAST (CAR (COND [(SETQ COM (GET 'EDIT 'LASTVALUE))]
+					[T '((NIL))]))))]
+	      [AND ATM 
+		   [EQ (CAR L)
+		       (CAR (LAST (CAR (COND [(SETQ COM (GET ATM 'EDIT-SAVE))]
+					     [T '((NIL))]))))]])
+	  (SETQ L (CAR COM))
+	  (SETQ MARKLST (CADR COM))
+	  (SETQ UNDOLST (CADDR COM))
+	  (COND [(CAR UNDOLST) (SETQ UNDOLST (CONS NIL UNDOLST))])
+	  (SETQ UNFIND (CDDDR COM))])
+     LP (ERRSET (EDITL1) ERRORX)
+	(GO LP)))
+
+(DE EDIT1 NIL
+  (PROG (X)
+	(SETQ X COMS)
+     L1 (COND [X (EDITCOM (SETQ COM (CAR X)) NIL) (SETQ X (CDR X)) (GO L1)])))
+
+(DE EDVAL (SN) ((LAMBDA (L) (ERRSET (EVAL SN))) L))
+
+(DE EDITL1 NIL
+  (PROG (LEVEL)
+	(SETQ LEVEL (SPDLPT))
+     CT (SETQ FINDFLAG NIL)
+	(COND [(NULL OLDPROMPT)
+	       (SETQ OLDPROMPT
+		     (CONS (STKCOUNT 'EDITL0 (ADD1 LEVEL) 0.) (PROMPT 35.)))]
+	 )
+      A (SETQ UNDOLST1 NIL)
+	(SETQ COM (EDITREAD))
+	(LINES 0.)
+	(SETQ L0 L)
+	(SETQ COM0 (COND [(ATOM COM) COM] [T (CAR COM)]))
+	(COND [(CONSP (PROG1 (ERRSET (EDITCOM COM T))
+			     (COND [UNDOLST1 (SETQ UNDOLST1
+						   (CONS COM0 
+							 (CONS L0 UNDOLST1)))
+					     (SETQ UNDOLST
+						   (CONS UNDOLST1 UNDOLST))])))
+	       (GO A)])
+	(SETQ READBUF NIL)
+	(LINES 0.)
+	(COND [COM (PRIN1 COM) (PRINC '"  ?")])
+	(GO CT)))
+
+(DE EDITREAD NIL
+  (PROG (X BASE *NOPOINT)
+	(SETQ BASE 10.)
+	(SETQ *NOPOINT T)
+	(COND [(NULL READBUF)
+	       (INC NIL T)
+	       (OUTC NIL T)
+	       (PROMPT 35.)
+	       (TALK)
+	       (PROG NIL
+		  L1 (LINES 1.)
+		     (COND [(NEQ (CAR OLDPROMPT) 1.) (PRINC (CAR OLDPROMPT))])
+		     (COND [(ATOM (SETQ READBUF (ERRSET (LINEREAD) ERRORX)))
+			    (GO L1)])
+		     (SETQ READBUF (CAR READBUF)))])
+	(SETQ X (CAR READBUF))
+	(SETQ READBUF (CDR READBUF))
+	(RETURN X)))
+
+(DE EDITCOM (C TOPFLG)
+  (SETQ COM C)
+  (COND [FINDFLAG (SETQ C FINDFLAG)
+		  (SETQ FINDFLAG NIL)
+		  (COND [(MEMB C '(BF BFP)) (EDITBF COM NIL)] [T (EDITQF COM)])
+		  (COND [(MEMB C '(FP BFP)) (BPNT0 (CAR L) EDITPLEV)])]
+	[(AND EDITRACEFN [EDITRACEFN C] NIL)]
+	[(NUMBERP C) (SETQ L (EDIT1F C L))]
+	[(ATOM C) (EDITCOMA C (NULL TOPFLG))]
+	[T (EDITCOML C (NULL TOPFLG))])
+  (CAR L))
+
+(DE EDITCOMA (C COPYFLG)
+  (PROG (TEM)
+	(SELECTQ
+	 C 
+	 [NIL NIL]
+	 [OK (COND [ATM (REMPROP ATM 'EDIT-SAVE)])
+	     (PUTPROP 'EDIT
+		      (CONS (LAST L) (CONS MARKLST (CONS UNDOLST L)))
+		      'LASTVALUE)
+	     (PROMPT (CDR OLDPROMPT))
+	     (RETFROM 'EDITL0 L)]
+	 [STOP (PROMPT (CDR OLDPROMPT))
+	       (SPREVAL (STKSRCH 'EDITL0 (SPDLPT) NIL) '(ERR))]
+	 [SAVE (COND [ATM (PUTPROP 'EDIT
+				   (PUTPROP ATM 
+					    (CONS L 
+						  (CONS MARKLST 
+							(CONS UNDOLST UNFIND)))
+					    'EDIT-SAVE)
+				   'LASTVALUE)])
+	       (PROMPT (CDR OLDPROMPT))
+	       (RETFROM 'EDITL0 L)]
+	 [TTY: (SETQ COM COM0) (SETQ L (EDITL L NIL NIL NIL 'TTY:))]
+	 [E (COND [TOPFLG (COND [(CONSP (SETQ TEM (EDVAL (EDITREAD))))
+				 (%PRINFN (CAR TEM))])]
+		  [T (EDITQF C)])]
+	 [P (BPNT0 (CAR L) EDITPLEV)]
+	 [P; (PROG (COMMENTFLG) (SETQ COMMENTFLG T) (BPNT0 (CAR L) EDITPLEV))]
+	 [? (PROG (COMMENTFLG) (SETQ COMMENTFLG T) (BPNT0 (CAR L) 100.))]
+	 [PP (BPNT0 (CAR L) NIL)]
+	 [PP; (PROG (COMMENTFLG) (SETQ COMMENTFLG T) (BPNT0 (CAR L) NIL))]
+	 [^ (AND [CDR L] [SETQ UNFIND L]) (SETQ L (LAST L))]
+	 [!0 (COND [(NULL (CDR L)) (ERR NIL)])
+	     (PROG NIL
+		LP (SETQ L (CDR L))
+		   (COND [(TAILP (CAR L) (CADR L)) (GO LP)]))]
+	 [MARK (SETQ MARKLST (CONS L MARKLST))]
+	 [UNDO (EDIT!UNDO TOPFLG NIL (COND [READBUF (EDITREAD)]))]
+	 [TEST (SETQ UNDOLST (CONS NIL UNDOLST))]
+	 [!UNDO (EDIT!UNDO T T NIL)]
+	 [UNBLOCK (COND [(SETQ TEM (MEMQ NIL UNDOLST))
+			 (EDITSMASH TEM (NCONS NIL) (CDR TEM))]
+			[T (PRINC '"Not Blocked")])]
+	 [_ (COND [MARKLST (AND [CDR L] [SETQ UNFIND L]) (SETQ L (CAR MARKLST))]
+		  [T (ERR NIL)])]
+	 [(< \)
+	  (COND [UNFIND (SETQ C L)
+			(SETQ L UNFIND)
+			(AND [CDR C] [SETQ UNFIND C])]
+		[T (ERR NIL)])]
+	 [(<P \P)
+	  (COND [(AND LASTP1 [NEQ LASTP1 L]) (SETQ L LASTP1)]
+		[(AND LASTP2 [NEQ LASTP2 L]) (SETQ L LASTP2)]
+		[T (ERR NIL)])]
+	 [__ (COND [MARKLST (AND [CDR L] [SETQ UNFIND L])
+			    (SETQ L (CAR MARKLST))
+			    (SETQ MARKLST (CDR MARKLST))]
+		   [T (ERR NIL)])]
+	 [(F BF FP BFP)
+	  (COND [(NULL TOPFLG) (SETQ FINDFLAG C) (RETURN NIL)]
+		[(OR READBUF [NOT (BOUNDP 'FINDARG)]) (SETQ FINDARG (EDITREAD))]
+	   )
+	  (COND [(MEMB C '(F FP)) (EDITQF FINDARG)]
+		[(MEMB C '(BF BFP)) (EDITBF FINDARG NIL)])
+	  (COND [(MEMB C '(FP BFP)) (BPNT0 (CAR L) EDITPLEV)])]
+	 [UP (EDUP)]
+	 [DELETE (EDIT: ': NIL NIL)]
+	 [NX (EDIT* 1.)]
+	 [BK (EDIT* -1.)]
+	 [!NX
+	  (SETQ L
+		((LAMBDA (L)
+		  (PROG (UF)
+			(SETQ UF L)
+		     LP (COND [(OR [NULL (SETQ L (CDR L))] [NULL (CDR L)])
+			       (ERR NIL)]
+			      [(OR [NULL (SETQ TEM (MEMQ (CAR L) (CADR L)))]
+				   [NULL (CDR TEM)])
+			       (GO LP)])
+			(EDITCOM 'NX NIL)
+			(SETQ UNFIND UF)
+			(RETURN L)))
+		 L))]
+	 [?? (EDITH UNDOLST)]
+	 [COND [(AND [NULL (SETQ TEM (EDITMAC C EDITMACROS NIL))]
+		     [NULL (SETQ TEM (EDITMAC C USERMACROS NIL))])
+		(RETURN (EDITDEFAULT C))]
+	       [T (EDITCOMS (COPY (CDR TEM)))]])))
+
+(DE EDITCOML (C COPYFLG)
+  (PROG (C2 C3 TEM)
+     LP (COND [(CONSP (CDR C))
+	       (SETQ C2 (CADR C))
+	       (COND [(CONSP (CDDR C)) (SETQ C3 (CADDR C))])])
+	(COND [(AND LCFLG 
+		    [SELECTQ C2 
+			     [(TO THRU THROUGH)
+			      (COND [(NULL (CDDR C))
+				     (SETQ C3 -1.)
+				     (SETQ C2 'THRU)])
+			      T]
+			     NIL])
+	       (EDITTO (CAR C) C3 C2)
+	       (RETURN NIL)]
+	      [(NUMBERP (CAR C)) (EDIT2F (CAR C) (CDR C)) (RETURN NIL)]
+	      [(EQ C2 '::) (EDITCONT (CAR C) (CDDR C)) (RETURN NIL)])
+	(SELECTQ
+	 [CAR C]
+	 [S (SET C2 
+		 (COND [(NULL C2) (ERR NIL)]
+		       [T ((LAMBDA (L) (EDLOC (CDDR C))) L)]))]
+	 [R ((LAMBDA (L UNFIND)
+	      (EDIT4F C2 T)
+	      (SETQ C2
+		    (COND [(AND [ATOM C2] UPFINDFLG [CONSP (CAR L)]) (CAAR L)]
+			  [T (CAR L)])))
+	     (NCONS (CAR L))
+	     NIL)
+	    (EDITDSUBST C3 C2 (CAR L))]
+	 [E (COND [(ATOM (SETQ TEM (EDVAL C2))) (ERR NIL)]
+		  [(NULL (CDDR C)) (%PRINFN (CAR TEM))])
+	    (RETURN TEM)]
+	 [I (SETQ C
+		  (CONS (COND [(ATOM C2) C2] [T (EVAL C2)])
+			(MAPCAR (FUNCTION
+				 (LAMBDA (X)
+				  (COND [TOPFLG (%PRINFN (SETQ X (EVAL X)))
+						(TERPRI)
+						X]
+					[T (EVAL X)])))
+				(CDDR C))))
+	    (SETQ COPYFLG NIL)
+	    (GO LP)]
+	 [N (COND [(ATOM (CAR L)) (ERR NIL)])
+	    (EDITNCONC (CAR L)
+		       (COND [COPYFLG (COPY (CDR C))] [T (APPEND (CDR C) NIL)]))
+	  ]
+	 [P (COND [(NEQ LASTP1 L) (SETQ LASTP2 LASTP1) (SETQ LASTP1 L)])
+	    (BPNT (CDR C))]
+	 [F (EDIT4F C2 C3)]
+	 [FS (PROG NIL
+		L1 (COND [(SETQ C (CDR C)) (EDITQF (SETQ COM (CAR C))) (GO L1)])
+	      )]
+	 [F= (EDIT4F (CONS '== C2) C3)]
+	 [ORF (EDIT4F (CONS '*ANY* (CDR C)) 'N)]
+	 [BF (EDITBF C2 C3)]
+	 [NTH (COND [(NEQ (SETQ TEM (EDITNTH (CAR L) C2)) (CAR L))
+		     (SETQ L (CONS TEM L))])]
+	 [IF (COND [(AND [CONSP (SETQ TEM (EDVAL C2))] [CAR TEM])
+		    (COND [(CDR C) (EDITCOMS C3)])]
+		   [(AND [CDDR C] [CDDDR C]) (EDITCOMS (CADDDR C))]
+		   [T (ERR NIL)])]
+	 [BI (BI C2 (COND [(CDDR C) C3] [T C2]) (AND [CDR C] [CAR L]))]
+	 [RI (RI C2 C3 (AND [CDR C] [CDDR C] [CAR L]))]
+	 [(RO LI LO BO) ((CAR C) C2 (AND [CDR C] [CAR L]))]
+	 [M (SETQ USERMACROS
+		  (CONS (COND [(ATOM C2)
+			       (COND [(SETQ TEM (EDITMAC C2 USERMACROS NIL))
+				      (RPLACD TEM (CDDR C))
+				      (RETURN NIL)]
+				     [T (CONS C2 (CONS NIL (CDDR C)))])]
+			      [T (COND [(SETQ TEM
+					      (EDITMAC (CAR C2) USERMACROS T))
+					(RPLACA TEM (CADDR C))
+					(RPLACD TEM (CDDDR C))
+					(RETURN NIL)]
+				       [T (NCONC EDITCOMSL (NCONS (CAR C2)))
+					  (CONS (CAR C2) (CDDR C))])])
+			USERMACROS))]
+	 [NX (EDIT* C2)]
+	 [BK (EDIT* (MINUS C2))]
+	 [ORR (EDOR (CDR C))]
+	 [MBD (EDITMBD NIL (CDR C))]
+	 [XTR (EDITXTR NIL (CDR C))]
+	 [(THRU TO) (EDITTO NIL C2 (CAR C))]
+	 [(A B : AFTER BEFORE) (EDIT: (CAR C) NIL (CDR C))]
+	 [MV (EDITMV NIL (CADR C) (CDDR C))]
+	 [(LP LPQ) (EDRPT (CDR C) (EQ (CAR C) 'LPQ))]
+	 [LC (EDLOC (CDR C))]
+	 [LCL (EDLOCL (CDR C))]
+	 [_ (SETQ L
+	     ((LAMBDA (L)
+	       (PROG (UF)
+		     (SETQ UF L)
+		     (SETQ C2 (EDITFPAT C2))
+		  LP (COND
+		      [(COND [(AND [ATOM C2] [CONSP (CAR L)]) (EQ C2 (CAAR L))]
+			     [(EQ (CAR C2) 'IF)
+			      (COND [(ATOM (SETQ TEM (EDVAL (CADR C2)))) NIL]
+				    [T TEM])]
+			     [T (EDIT4E C2 
+					(COND [(EQ (CAR C2) '/@) (CAAR L)]
+					      [T (CAR L)]))])
+		       (SETQ UNFIND UF)
+		       (RETURN L)]
+		      [(SETQ L (CDR L)) (GO LP)])
+		     (ERR NIL)))
+	      L))]
+	 [BELOW (EDITBELOW C2 (COND [(CDDR C) C3] [T 1.]))]
+	 [SW (EDITSW (CADR C) (CADDR C))]
+	 [BIND (PROG (/#1 /#2 /#3) (EDITCOMS (CDR C)))]
+	 [COMS (PROG NIL
+		  L1 (COND [(SETQ C (CDR C))
+			    (EDITCOM (SETQ COM (EVAL (CAR C))) NIL)
+			    (GO L1)]))]
+	 [COMSQ (EDITCOMS (CDR C))]
+	 [COND [(AND [NULL (SETQ TEM (EDITMAC (CAR C) EDITMACROS T))]
+		     [NULL (SETQ TEM (EDITMAC (CAR C) USERMACROS T))])
+		(RETURN (EDITDEFAULT C))]
+	       [(NOT (ATOM (SETQ C3 (CAR TEM))))
+		(EDITCOMS (SUBPAIR C3 (CDR C) (CDR TEM)))]
+	       [T (EDITCOMS (SUBST (CDR C) C3 (CDR TEM)))]])))
+
+(DE EDITMAC (C LST FLG)
+  (PROG (X Y)
+     LP (COND [(NULL LST) (RETURN NIL)]
+	      [(EQ C (CAR (SETQ X (CAR LST))))
+	       (SETQ Y (CDR X))
+	       (COND [(COND [FLG (CAR Y)] [T (NULL (CAR Y))]) (RETURN Y)])])
+	(SETQ LST (CDR LST))
+	(GO LP)))
+
+(DE EDITCOMS (COMS)
+  (PROG NIL
+     L1 (COND [(ATOM COMS) (RETURN (CAR L))])
+	(EDITCOM (CAR COMS) NIL)
+	(SETQ COMS (CDR COMS))
+	(GO L1)))
+
+(DE EDITH (LST)
+  (PROG NIL
+     L1 (COND [(NULL LST) (RETURN NIL)]
+	      [(NULL (CAR LST)) (PRINA 'BLOCK) (GO L2)]
+	      [(NULL (CAAR LST)) (GO L3)]
+	      [(NUMBERP (CAAR LST)) (PRINA (LIST (CAAR LST) '--)) (GO L2)])
+	(PRINA (CAAR LST))
+     L2 (SPACES 1.)
+     L3 (SETQ LST (CDR LST))
+	(GO L1)))
+
+(DE EDIT!UNDO (PRINTFLG !UNDOFLG UNDOP)
+  (PROG (LST FLG)
+	(SETQ LST UNDOLST)
+     LP (COND [(OR [NULL LST] [NULL (CAR LST)]) (GO OUT)])
+	(COND [(NULL UNDOP)
+	       (SELECTQ [CAAR LST]
+			[(NIL !UNDO UNBLOCK) (GO LP1)]
+			[UNDO (COND [(NULL !UNDOFLG) (GO LP1)])]
+			NIL)]
+	      [(NEQ UNDOP (CAAR LST)) (GO LP1)])
+	(UNDOEDITCOM (CAR LST) PRINTFLG)
+	(COND [(NULL !UNDOFLG) (RETURN NIL)])
+	(SETQ FLG T)
+    LP1 (SETQ LST (CDR LST))
+	(GO LP)
+    OUT (COND [FLG (RETURN NIL)]
+	      [(AND LST [CDR LST]) (PRINC '"Blocked")]
+	      [T (PRINC '"Nothing Saved")])))
+
+(DE UNDOEDITCOM (X FLG)
+  (PROG (C)
+	(COND [(ATOM X) (ERR NIL)]
+	      [(NEQ (CAR (LAST L)) (CAR (LAST (CADR X))))
+	       (PRINC '"Different expression")
+	       (SETQ COM NIL)
+	       (ERR NIL)])
+	(SETQ C (CAR X))
+	(SETQ L (CADR X))
+	(PROG (Y Z)
+	      (SETQ Y (CDR X))
+	   L1 (COND [(SETQ Y (CDR Y))
+		     (SETQ Z (CAR Y))
+		     (COND [(EQ (CAR Z) 'R)
+			    ((LAMBDA (L)
+			      (EDITCOM (LIST 'R (CADR Z) (CADDR Z)) NIL))
+			     (CADDDR Z))]
+			   [T (EDITSMASH (CAR Z) (CADR Z) (CDDR Z))])
+		     (GO L1)]))
+	(EDITSMASH X NIL (CONS (CAR X) (CDR X)))
+	(AND FLG 
+	     [PRIN1 (COND [(NOT (NUMBERP C)) C] [T (CONS C '(--))])]
+	     [PRINC '" Undone"]
+	     [TERPRI])
+	(RETURN T)))
+
+(DE EDITSMASH (OLD A D)
+  (COND [(ATOM OLD) (ERR NIL)])
+  (SETQ UNDOLST1 (CONS (CONS OLD (CONS (CAR OLD) (CDR OLD))) UNDOLST1))
+  (RPLACA OLD A)
+  (RPLACD OLD D))
+
+(DE EDITNCONC (X Y)
+  (PROG (TEM)
+	(RETURN (COND [(NULL X) Y]
+		      [(ATOM X) (ERR NIL)]
+		      [T (EDITSMASH (SETQ TEM (LAST X)) (CAR TEM) Y) X]))))
+
+(DE EDITDSUBST (X Y Z)
+  (PROG NIL
+     LP (COND [(PATOM Z) (RETURN NIL)]
+	      [(COND [(LITATOM Y) (EQ Y (CAR Z))] [T (EQUAL Y (CAR Z))])
+	       (EDITSMASH Z (COPY X) (CDR Z))]
+	      [T (EDITDSUBST X Y (CAR Z))])
+	(COND [(AND Y [EQ Y (CDR Z)])
+	       (EDITSMASH Z (CAR Z) (COPY X))
+	       (RETURN NIL)])
+	(SETQ Z (CDR Z))
+	(GO LP)))
+
+(DE EDIT1F (C L)
+  (COND [(EQ C 0.) (COND [(NULL (CDR L)) (ERR NIL)] [T (CDR L)])]
+	[(ATOM (CAR L)) (ERR NIL)]
+	[(*GREAT C 0.)
+	 (COND [(*GREAT C (LENGTH (CAR L))) (ERR NIL)]
+	       [T (CONS (CAR (SETQ LASTAIL (NTH (CAR L) C))) L)])]
+	[(*GREAT (MINUS C) (LENGTH (CAR L))) (ERR NIL)]
+	[T (CONS (CAR (SETQ LASTAIL
+			    (NTH (CAR L) (*PLUS (LENGTH (CAR L)) (ADD1 C)))))
+		 L)]))
+
+(DE EDIT2F (N X)
+  (PROG (CL)
+	(SETQ CL (CAR L))
+	(COND [(ATOM CL) (ERR NIL)]
+	      [COPYFLG (SETQ X (COPY X))]
+	      [T (SETQ X (APPEND X NIL))])
+	(COND [(*GREAT N 0.)
+	       (COND [(*GREAT N (LENGTH CL)) (ERR NIL)]
+		     [(NULL X) (GO DELETE)]
+		     [T (GO REPLACE)])]
+	      [(OR [EQ N 0.] [NULL X] [*GREAT (MINUS N) (LENGTH CL)])
+	       (ERR NIL)]
+	      [T (COND [(NEQ N -1.) (SETQ CL (NTH CL (MINUS N)))])
+		 (EDITSMASH CL (CAR X) (CONS (CAR CL) (CDR CL)))
+		 (COND [(CDR X)
+			(EDITSMASH CL (CAR CL) (NCONC (CDR X) (CDR CL)))])
+		 (RETURN NIL)])
+ DELETE (COND [(EQ N 1.)
+	       (OR [CONSP (CDR CL)] [ERR NIL])
+	       (EDITSMASH CL (CADR CL) (CDDR CL))]
+	      [T (SETQ CL (NTH CL (SUB1 N))) (EDITSMASH CL (CAR CL) (CDDR CL))])
+	(RETURN NIL)
+ REPLACE 
+	(COND [(NEQ N 1.) (SETQ CL (NTH CL N))])
+	(EDITSMASH CL (CAR X) (CDR CL))
+	(COND [(CDR X) (EDITSMASH CL (CAR CL) (NCONC (CDR X) (CDR CL)))])))
+
+(DE EDIT4E (PAT Y)
+  (COND [(EQ PAT Y) T]
+	[(ATOM PAT)
+	 (COND [(OR [EQ PAT '&] [EQUAL PAT Y])]
+	       [(AND [NOT (NUMBERP PAT)] [OR [STRINGP Y] [LITATOM Y]])
+		(EQSTR PAT Y)])]
+	[(EQ (CAR PAT) '*ANY*)
+	 (PROG NIL
+	    LP (COND [(NULL (SETQ PAT (CDR PAT))) (RETURN NIL)]
+		     [(EDIT4E (CAR PAT) Y) (RETURN T)])
+	       (GO LP))]
+	[(AND [EQ (CAR PAT) '/@] [ATOM Y])
+	 (PROG (Z)
+	       (SETQ PAT (CDR PAT))
+	       (SETQ Z (EXPLODEC Y))
+	    LP (COND [(EQ (CAR PAT) '/@)
+		      (FREELIST Z)
+		      (PRINC '"= ")
+		      (PRIN1 Y)
+		      (TERPRI)
+		      (RETURN T)]
+		     [(NULL Z) (RETURN NIL)]
+		     [(NEQ (CAR PAT) (CAR Z)) (FREELIST Z) (RETURN NIL)])
+	       (SETQ PAT (CDR PAT))
+	       (SETQ Z (CDR Z))
+	       (GO LP))]
+	[(EQ (CAR PAT) '--)
+	 (OR [NULL (SETQ PAT (CDR PAT))]
+	     [PROG NIL
+		LP (COND [(EDIT4E PAT Y) (RETURN T)] [(ATOM Y) (RETURN NIL)])
+		   (SETQ Y (CDR Y))
+		   (GO LP)])]
+	[(EQ (CAR PAT) '==) (EQ (CDR PAT) Y)]
+	[(ATOM Y) NIL]
+	[(EDIT4E (CAR PAT) (CAR Y)) (EDIT4E (CDR PAT) (CDR Y))]))
+
+(DE EDITQF (PAT)
+  (PROG (Q1)
+	(COND [(AND [CONSP (CAR L)]
+		    [CONSP (SETQ Q1 (CDAR L))]
+		    [SETQ Q1 (MEMQ PAT Q1)])
+	       (SETQ L
+		     (CONS (COND [UPFINDFLG Q1] [T (SETQ LASTAIL Q1) (CAR Q1)])
+			   L))]
+	      [T (EDIT4F PAT 'N)])))
+
+(DE EDIT4F (PAT SN)
+  (PROG (LL X FF)
+	(SETQ FF (NCONS NIL))
+	(SETQ COM PAT)
+	(SETQ PAT (EDITFPAT PAT))
+	(SETQ LL L)
+	(COND [(EQ SN 'N)
+	       (SETQ SN 1.)
+	       (COND [(ATOM (CAR L)) (GO LP1)]
+		     [(AND [ATOM (CAAR L)] UPFINDFLG)
+		      (SETQ LL (CONS (CAAR L) L))
+		      (GO LP1)]
+		     [T (SETQ LL (CONS (CAAR L) L))])])
+	(COND [(AND SN [NOT (NUMBERP SN)]) (SETQ SN 1.)])
+	(COND [(AND [EDIT4E (COND [(AND [CONSP PAT] [EQ (CAR PAT) ':::])
+				   (CDR PAT)]
+				  [T PAT])
+			    (CAR LL)]
+		    [OR [NULL SN] [EQ (SETQ SN (SUB1 SN)) 0.]])
+	       (RETURN (SETQ L LL))])
+	(SETQ X (CAR LL))
+     LP (COND [(EDIT4F1 PAT X MAXLEVEL)
+	       (AND [CDR L] [SETQ UNFIND L])
+	       (RETURN (CAR (SETQ L
+				  (NCONC (CAR FF)
+					 (COND [(EQ (CADR FF) (CAR LL))
+						(CDR LL)]
+					       [T LL])))))]
+	      [(NULL SN) (ERR NIL)])
+    LP1 (SETQ X (CAR LL))
+	(COND [(NULL (SETQ LL (CDR LL))) (ERR NIL)]
+	      [(AND [SETQ X (MEMQ X (CAR LL))] [CONSP (SETQ X (CDR X))])
+	       (GO LP)])
+	(GO LP1)))
+
+(DE EDITFPAT (PAT)
+  (COND [(CONSP PAT)
+	 (COND [(OR [EQ (CAR PAT) '==] [EQ (CAR PAT) '/@]) PAT]
+	       [T (NCONC (MAPCAR 'EDITFPAT
+				 (LDIFF PAT (SETQ PAT (CDR (LAST PAT)))))
+			 (EDITFPAT PAT))])]
+	[(EQ (ANTHCHAR PAT -1.) 64.) (CONS '/@ (EXPLODEC PAT))]
+	[T PAT]))
+
+(DE EDIT4F1 (PAT X LVL)
+  (PROG NIL
+     LP (COND [(NOT (*GREAT LVL 0.))
+	       (PRINC '"MAXLEVEL Exceeded")
+	       (TERPRI)
+	       (RETURN NIL)]
+	      [(ATOM X) (RETURN NIL)]
+	      [(AND [CONSP PAT]
+		    [EQ (CAR PAT) ':::]
+		    [EDIT4E (CDR PAT) X]
+		    [OR [NULL SN] [EQ (SETQ SN (SUB1 SN)) 0.]])]
+	      [(AND [OR [ATOM PAT] [NEQ (CAR PAT) ':::]]
+		    [EDIT4E PAT (CAR X)]
+		    [OR [NULL SN] [EQ (SETQ SN (SUB1 SN)) 0.]])
+	       (COND [(OR [NULL UPFINDFLG] [CONSP (CAR X)])
+		      (SETQ LASTAIL X)
+		      (SETQ X (CAR X))])]
+	      [(AND PAT 
+		    [EDIT4E PAT (CDR X)]
+		    [OR [NULL SN] [EQ (SETQ SN (SUB1 SN)) 0.]])
+	       (SETQ X (CDR X))]
+	      [(AND SN 
+		    [CONSP (CAR X)]
+		    [EDIT4F1 PAT (CAR X) (SUB1 LVL)]
+		    [EQ SN 0.])
+	       (SETQ X (CAR X))]
+	      [T (SETQ X (CDR X)) (SETQ LVL (SUB1 LVL)) (GO LP)])
+	(COND [(AND FF [NEQ X (CADR FF)]) (TCONC FF X)])
+	(RETURN (OR FF T))))
+
+(DE EDITFINDP (X PAT FLG)
+  (PROG (SN LASTAIL FF)
+	(SETQ SN 1.)
+	(AND [NULL FLG] [SETQ PAT (EDITFPAT PAT)])
+	(RETURN (OR [EDIT4E PAT X] [EDIT4F1 PAT X MAXLEVEL]))))
+
+(DE EDITBF (PAT N)
+  (PROG (LL X Y FF)
+	(SETQ LL L)
+	(SETQ FF (NCONS NIL))
+	(SETQ COM PAT)
+	(SETQ PAT (EDITFPAT PAT))
+	(COND [(AND [NULL N] [CDR LL]) (GO LP1)])
+     LP (COND [(EDITBF1 PAT (CAR LL) MAXLEVEL Y)
+	       (SETQ UNFIND L)
+	       (RETURN (CAR (SETQ L
+				  (NCONC (CAR FF)
+					 (COND [(EQ (CAR LL) (CADR FF))
+						(CDR LL)]
+					       [T LL])))))])
+    LP1 (SETQ X (CAR LL))
+	(COND [(NULL (SETQ LL (CDR LL))) (ERR NIL)]
+	      [(OR [SETQ Y (MEMQ X (CAR LL))] [SETQ Y (TAILP X (CAR LL))])
+	       (GO LP)])
+	(GO LP1)))
+
+(DE EDITBF1 (PAT X LVL TAIL)
+  (PROG (Y)
+     LP (COND [(NOT (*GREAT LVL 0.))
+	       (PRINC '"MAXLEVEL Exceeded")
+	       (TERPRI)
+	       (RETURN NIL)]
+	      [(EQ TAIL X)
+	       (RETURN (COND [(EDIT4E (COND [(AND [CONSP PAT]
+						  [EQ (CAR PAT) ':::])
+					     (CDR PAT)]
+					    [T PAT])
+				      X)
+			      (TCONC FF X)]))])
+	(SETQ Y X)
+    LP1 (COND [(NULL (OR [EQ (CDR Y) TAIL] [ATOM (CDR Y)]))
+	       (SETQ Y (CDR Y))
+	       (GO LP1)])
+	(SETQ TAIL Y)
+	(COND [(AND [CONSP (CAR TAIL)] [EDITBF1 PAT (CAR TAIL) (SUB1 LVL) NIL])
+	       (SETQ TAIL (CAR TAIL))]
+	      [(AND [EQ (CAR PAT) ':::] [EDIT4E (CDR PAT) TAIL])]
+	      [(AND [OR [ATOM PAT] [NEQ (CAR PAT) ':::]]
+		    [EDIT4E PAT (CAR TAIL)])
+	       (COND [(OR [NULL UPFINDFLG] [CONSP (CAR TAIL)])
+		      (SETQ LASTAIL TAIL)
+		      (SETQ TAIL (CAR TAIL))])]
+	      [(AND PAT [EDIT4E PAT (CDR TAIL)]) (SETQ X (CDR X))]
+	      [T (SETQ LVL (SUB1 LVL)) (GO LP)])
+	(COND [(NEQ TAIL (CADR FF)) (TCONC FF TAIL)])
+	(RETURN FF)))
+
+(DE EDITNTH (X N)
+  (COND [(ATOM X) (ERR NIL)]
+	[(NOT (NUMBERP N))
+	 (OR [MEMQ N X] [MEMQ (SETQ N (EDITELT N (NCONS X))) X] [TAILP N X])]
+	[(EQ N 0.) (ERR NIL)]
+	[(NULL (SETQ N
+		     (COND [(OR [NOT (MINUSP N)]
+				[*GREAT (SETQ N (PLUS (LENGTH X) N 1.)) 0.])
+			    (NTH X N)])))
+	 (ERR NIL)]
+	[T N]))
+
+(DE BPNT0 (Y N)
+  (COND [(NEQ LASTP1 L) (SETQ LASTP2 LASTP1) (SETQ LASTP1 L)])
+  (LINES 0.)
+  (COND [N (SETQ $%DOTFLG (TAILP (CAR L) (CADR L)))
+	   (SETQ %PREVFN% NIL)
+	   (PRINLEV Y N)]
+	[T (TERPRI) (SPRINT Y 1.)]))
+
+(DE BPNT (X)
+  (PROG (Y N)
+	(COND [(EQ (CAR X) 0.)
+	       (SETQ Y (CAR L))
+	       (SETQ $%DOTFLG (TAILP (CAR L) (CADR L)))]
+	      [T (SETQ Y (CAR (EDITNTH (CAR L) (CAR X))))])
+	(COND [(NULL (CDR X)) (SETQ N 2.)]
+	      [(NOT (NUMBERP (SETQ N (CADR X)))) (ERR NIL)]
+	      [(MINUSP N) (ERR NIL)])
+	(SETQ %PREVFN% NIL)
+	(LINES 0.)
+	(RETURN (PRINLEV Y N))))
+
+(DE RI (M N X)
+  (PROG (A B)
+	(SETQ A (EDITNTH X M))
+	(SETQ B (EDITNTH (CAR A) N))
+	(COND [(OR [NULL A] [NULL B]) (ERR NIL)])
+	(EDITSMASH A (CAR A) (EDITNCONC (CDR B) (CDR A)))
+	(EDITSMASH B (CAR B) NIL)))
+
+(DE RO (N X)
+  (SETQ X (EDITNTH X N))
+  (COND [(OR [NULL X] [ATOM (CAR X)]) (ERR NIL)])
+  (EDITSMASH (SETQ N (LAST (CAR X))) (CAR N) (CDR X))
+  (EDITSMASH X (CAR X) NIL))
+
+(DE LI (N X)
+  (SETQ X (EDITNTH X N))
+  (COND [(NULL X) (ERR NIL)])
+  (EDITSMASH X (CONS (CAR X) (CDR X)) NIL))
+
+(DE LO (N X)
+  (SETQ X (EDITNTH X N))
+  (COND [(OR [NULL X] [ATOM (CAR X)]) (ERR NIL)])
+  (EDITSMASH X (CAAR X) (CDAR X)))
+
+(DE BI (M N X)
+  (PROG (A B)
+	(SETQ B (CDR (SETQ A (EDITNTH X N))))
+	(SETQ X (EDITNTH X M))
+	(COND [(AND A [NOT (*GREAT (LENGTH A) (LENGTH X))])
+	       (EDITSMASH A (CAR A) NIL)
+	       (EDITSMASH X (CONS (CAR X) (CDR X)) B)]
+	      [T (ERR NIL)])))
+
+(DE BO (N X)
+  (SETQ X (EDITNTH X N))
+  (COND [(ATOM (CAR X)) (ERR NIL)])
+  (EDITSMASH X (CAAR X) (EDITNCONC (CDAR X) (CDR X))))
+
+(DE EDITDEFAULT (EDITX)
+  (PROG (EDITY)
+	(COND [LCFLG (RETURN (COND [(EQ LCFLG T) (EDITQF EDITX)]
+				   [T (EDITCOM (LIST LCFLG EDITX) TOPFLG)]))]
+	      [(CONSP EDITX)
+	       (RETURN (COND [(SETQ EDITY (ASSOC (CAR EDITX) EDITOPS))
+			      (EDITRAN EDITX (CDR EDITY))]
+			     [T (ERR NIL)]))]
+	      [(NULL TOPFLG) (ERR NIL)]
+	      [(MEMQ EDITX EDITCOMSL)
+	       (COND [READBUF (SETQ EDITX (CONS EDITX READBUF))
+			      (SETQ READBUF NIL)]
+		     [T (ERR NIL)])]
+	      [(AND [EQ (ANTHCHAR EDITX -1.) 80.]
+		    [MEMQ (PROGN (RPLACA (LAST (SETQ EDITX (AEXPLODE EDITX)))
+					 32.)
+				 (SETQ EDITX (READLIST EDITX)))
+			  '(^ _ UP NX BK !NX UNDO !0)])
+	       (SETQ READBUF (CONS 'P READBUF))]
+	      [(AND [EQ (ANTHCHAR EDITX 1.) 80.]
+		    [NUMBERP (SETQ EDITX (READLIST (CDR (AEXPLODE EDITX))))])
+	       (SETQ EDITX (LIST 'P 0. EDITX))]
+	      [T (ERR NIL)])
+	(RETURN (COND [(SETQ EDITY (ASSOC (CAR EDITX) EDITOPS))
+		       (EDITRAN EDITX (CDR EDITY))]
+		      [T (EDITCOM (SETQ COM EDITX) TOPFLG)]))))
+
+(DE EDUP NIL
+  (PROG (C-EXP L1 X Y)
+	(SETQ C-EXP (CAR L))
+     LP (COND [(NULL (SETQ L1 (CDR L))) (ERR NIL)]
+	      [(TAILP C-EXP (CAR L1)) (RETURN NIL)]
+	      [(NOT (SETQ X (MEMQ C-EXP (CAR L1)))) (ERR NIL)]
+	      [(OR [EQ X LASTAIL] [NOT (SETQ Y (MEMQ C-EXP (CDR X)))])]
+	      [(AND [EQ C-EXP (CAR LASTAIL)] [TAILP LASTAIL Y])
+	       (SETQ X LASTAIL)]
+	      [T (PRINC C-EXP) (PRINC '"- Location Uncertain") (TERPRI)])
+	(COND [(EQ X (CAR L1)) (SETQ L L1)] [T (SETQ L (CONS X L1))])
+	(RETURN NIL)))
+
+(DE EDIT* (N)
+  (CAR (SETQ L
+	     ((LAMBDA (COM L M)
+	       (COND [(NOT (*GREAT M N)) (ERR NIL)])
+	       (EDITCOM '!0 NIL)
+	       (EDITCOM (*DIF N M) NIL)
+	       L)
+	      NIL 
+	      L 
+	      ((LAMBDA (L) (EDUP) (LENGTH (CAR L))) L)))))
+
+(DE EDOR (COMS)
+  (PROG NIL
+     LP (COND [(NULL COMS) (ERR NIL)]
+	      [(CONSP (ERRSET (SETQ L
+				    ((LAMBDA (L)
+				      (COND [(ATOM (CAR COMS))
+					     (EDITCOM (CAR COMS))]
+					    [T (EDITCOMS (CAR COMS))])
+				      L)
+				     L))))
+	       (RETURN (CAR L))])
+	(SETQ COMS (CDR COMS))
+	(GO LP)))
+
+(DE ERRCOM (COMS) (ERRSET (EDITCOMS COMS)))
+
+(DE EDRPT (EDRX QUIET)
+  (PROG (EDRL EDRPTCNT)
+	(SETQ EDRL L)
+	(SETQ EDRPTCNT 0.)
+     LP (COND [(*GREAT EDRPTCNT MAXLOOP)
+	       (LINES 0.)
+	       (PRINC '"MAXLOOP Exceeded")
+	       (TERPRI)]
+	      [(CONSP (ERRCOM EDRX))
+	       (SETQ EDRL L)
+	       (SETQ EDRPTCNT (ADD1 EDRPTCNT))
+	       (GO LP)]
+	      [(NULL QUIET)
+	       (LINES 0.)
+	       (PRIN1 EDRPTCNT)
+	       (PRINC '" Occurrences")
+	       (TERPRI)])
+	(SETQ L EDRL)))
+
+(DE EDLOC (EDX)
+  (PROG (OLDL OLDF LCFLG EDL)
+	(SETQ OLDL L)
+	(SETQ OLDF UNFIND)
+	(SETQ LCFLG T)
+	(COND [(ATOM EDX) (EDITCOM EDX NIL)]
+	      [(AND [NULL (CDR EDX)] [ATOM (CAR EDX)]) (EDITCOM (CAR EDX) NIL)]
+	      [T (GO LP)])
+	(SETQ UNFIND OLDL)
+	(RETURN (CAR L))
+     LP (SETQ EDL L)
+	(COND [(CONSP (ERRCOM EDX)) (SETQ UNFIND OLDL) (RETURN (CAR L))])
+	(COND [(EQUAL EDL L) (SETQ L OLDL) (SETQ UNFIND OLDF) (ERR NIL)])
+	(GO LP)))
+
+(DE EDLOCL (COMS)
+  (CAR (SETQ L
+	     (NCONC ((LAMBDA (L UNFIND) (EDLOC COMS) L) (NCONS (CAR L)) NIL)
+		    (CDR L)))))
+
+(DE EDIT: (TYPE LC X)
+  (PROG (TOFLG L0 EDUP?)
+	(SETQ L0 L)
+	(SETQ X
+	      (MAPCAR
+	       (FUNCTION
+		(LAMBDA (X)
+		 (COND [(AND [CONSP X] [MEMQ (CAR X) '(/#/# $$)])
+			((LAMBDA (L UNDOLST1) (COPY (EDITCOMS (CDR X)))) L NIL)]
+		       [T X])))
+	       X))
+	(COND [LC (COND [(EQ (CAR LC) 'HERE) (SETQ LC (CDR LC))]) (EDLOC LC)])
+	(COND [(CDR L) (EDUP)]
+	      [(AND [EQ TYPE ':] [EQ (LENGTH X) 1.] [CONSP (CAR X)])
+	       (SETQ EDUP? T)
+	       (BI 1. -1. (CAR L))]
+	      [T (ERR NIL)])
+	(COND [(EQ L0 L) (SETQ LC NIL)])
+	(SELECTQ TYPE 
+		 [(B BEFORE) (EDIT2F -1. X)]
+		 [(A AFTER)
+		  (COND [(CDAR L) (EDIT2F -2. X)]
+			[T (EDITCOML (CONS 'N X) COPYFLG)])]
+		 [(: FOR)
+		  (COND [(OR X [CDAR L]) (EDIT2F 1. X)]
+			[(MEMQ (CAR L) (CADR L)) (EDUP) (EDIT2F 1. (NCONS NIL))]
+			[T (EDITCOMS '(0. (NTH -2.) (2.)))])
+		  (AND EDUP? [BO 1. (CAR L)])
+		  (RETURN (COND [(NULL LC) L]))]
+		 [ERR NIL])
+	(RETURN NIL)))
+
+(DE EDITMBD (LC X)
+  (PROG (Y TOFLG EDUP?)
+	(COND [LC (EDLOC LC)])
+	(COND [(CDR L) (EDUP)] [T (SETQ EDUP? T) (BI 1. -1. (CAR L))])
+	(SETQ Y (COND [TOFLG (CAAR L)] [T (NCONS (CAAR L))]))
+	(EDIT2F 1. 
+		(NCONS (COND [(OR [ATOM (CAR X)] [CDR X]) (APPEND X Y)]
+			     [T (LSUBST Y '* (CAR X))])))
+	(COND [EDUP? (BO 1. (CAR L))]
+	      [T (SETQ L
+		       (CONS (CAAR L)
+			     (COND [(TAILP (CAR L) (CADR L)) (CDR L)] [T L])))])
+	(RETURN (COND [(NULL LC) L]))))
+
+(DE EDITXTR (LC X)
+  (PROG (TOFLG EDUP?)
+	(COND [LC (EDLOC LC)])
+	((LAMBDA (L UNFIND)
+	  (EDLOC X)
+	  (SETQ X (COND [(TAILP (CAR L) (CADR L)) (CAAR L)] [T (CAR L)])))
+	 (NCONS (COND [(TAILP (CAR L) (CADR L)) (CAAR L)] [T (CAR L)]))
+	 NIL)
+	(COND [(CDR L) (EDUP)]
+	      [(ATOM X) (ERR NIL)]
+	      [T (SETQ EDUP? T) (BI 1. -1. (CAR L))])
+	(EDIT2F 1. (COND [TOFLG (APPEND X NIL)] [T (NCONS X)]))
+	(COND [EDUP? (BO 1. (CAR L))]
+	      [(AND [NULL TOFLG] [CONSP (CAAR L)])
+	       (SETQ L
+		     (CONS (CAAR L)
+			   (COND [(TAILP (CAR L) (CADR L)) (CDR L)] [T L])))])))
+
+(DE EDITELT (LC L)
+  (PROG (Y)
+	(EDLOC LC)
+     LP (SETQ Y L)
+	(COND [(CDR (SETQ L (CDR L))) (GO LP)])
+	(RETURN (CAR Y))))
+
+(DE EDITCONT (LC1 SN)
+  (SETQ L
+	((LAMBDA (L)
+	  (PROG NIL
+		(SETQ LC1 (EDITFPAT LC1))
+	     LP (COND [(NULL (EDIT4F LC1 'N)) (ERR NIL)]
+		      [(ATOM (ERRSET (EDLOCL SN))) (GO LP)])
+	    LP1 (COND [(NULL (SETQ L (CDR L))) (ERR NIL)]
+		      [(COND [(ATOM LC1) (EQ LC1 (CAAR L))]
+			     [(EQ (CAR LC1) '/@) (EDIT4E LC1 (CAAR L))]
+			     [T (EDIT4E LC1 (CAR L))])
+		       (RETURN L)])
+		(GO LP1)))
+	 L)))
+
+(DE EDITSW (M N)
+  (PROG (Y Z TEM)
+	(SETQ Y (EDITNTH (CAR L) M))
+	(SETQ Z (EDITNTH (CAR L) N))
+	(SETQ TEM (CAR Y))
+	(EDITSMASH Y (CAR Z) (CDR Y))
+	(EDITSMASH Z TEM (CDR Z))))
+
+(DE EDITMV (LC OP X)
+  (PROG (L0 L1 Z TOFLG)
+	(SETQ L0 L)
+	(AND LC [EDLOC LC])
+	(COND [(EQ OP 'HERE)
+	       (COND [(NULL LC) (EDLOC X) (SETQ X NIL)])
+	       (SETQ OP ':)]
+	      [(EQ (CAR X) 'HERE)
+	       (COND [(NULL LC) (EDLOC (CDR X)) (SETQ X NIL)]
+		     [T (SETQ X (CDR X))])])
+	(EDUP)
+	(SETQ L1 L)
+	(SETQ Z (CAAR L))
+	(SETQ L L0)
+	(AND X [EDLOC X])
+	(EDITCOML (COND [TOFLG (CONS OP (APPEND Z NIL))] [T (LIST OP Z)]) NIL)
+	(PROG (L) (SETQ L L1) (EDITCOMS '(1. DELETE)))
+	(RETURN (COND [(NULL LC) (SETQ UNFIND L1) L]
+		      [(NULL X) (SETQ UNFIND L1) L0]
+		      [T (SETQ UNFIND L) L0]))))
+
+(DE EDITTO (LC1 LC2 FLG)
+  (SETQ L
+	((LAMBDA (L)
+	  (COND [LC1 (EDLOC LC1) (EDUP)])
+	  (BI 1. 
+	      (COND [(AND [NUMBERP LC1] [NUMBERP LC2] [*GREAT LC2 LC1])
+		     (*DIF (ADD1 LC2) LC1)]
+		    [T LC2])
+	      (CAR L))
+	  (COND [(AND [EQ FLG 'TO] [CDAAR L]) (RI 1. -2. (CAR L))])
+	  (EDITCOM 1. NIL)
+	  L)
+	 L))
+  (SETQ TOFLG T))
+
+(DE EDITBELOW (PLACE DEPTH)
+  (COND [(MINUSP (SETQ DEPTH (EVAL DEPTH))) (ERR NIL)])
+  (PROG (N1 N2)
+	(SETQ N1 (LENGTH ((LAMBDA (L LCFLG) (EDITCOM PLACE NIL) L) L '_)))
+	(SETQ N2 (LENGTH L))
+	(COND [(*LESS N2 (*PLUS N1 DEPTH)) (ERR NIL)])
+	(SETQ UNFIND L)
+	(SETQ L (NTH L (DIFFERENCE (ADD1 N2) N1 DEPTH)))))
+
+(DE EDITRAN (C DEF)
+  (SETQ L
+   (OR
+    [(LAMBDA (L)
+      (PROG (Z W)
+	    (COND [(NULL DEF) (ERR NIL)] [(NULL (SETQ Z (CAR DEF))) (GO OUT)])
+	 LP (COND [(NULL Z) (ERR NIL)]
+		  [(NULL (SETQ W (MEMQ (CAR Z) C))) (SETQ Z (CDR Z)) (GO LP)])
+	OUT (SETQ Z
+	     (APPLY (CAR (SETQ DEF (CADR DEF)))
+		    (PROG (/#1 /#2 /#3)
+			  (SETQ /#1 (CDR (LDIFF C W)))
+			  (SETQ /#2 (CAR Z))
+			  (SETQ /#3 (CDR W))
+			  (RETURN
+			   (MAPCAR (FUNCTION
+				    (LAMBDA (X)
+				     (COND [(ATOM X)
+					    (SELECTQ X 
+						     [/#1 /#1]
+						     [/#2 /#2]
+						     [/#3 /#3]
+						     X)]
+					   [T (EVAL X)])))
+				   (CDR DEF))))))
+	    (RETURN (COND [(NULL Z) (SETQ UNFIND L) NIL] [T Z]))))
+     L]
+    L)))
+
+(DE UNPACKSTRING (L)
+  (COND [(OR [PATOM L] [CDR (LAST L)]) (ERR NIL)])
+  (MAPCONC
+   (FUNCTION
+    (LAMBDA (X)
+     (COND [(NOT (STRINGP X)) (LIST X)]
+	   [T (SETQ X
+		    (MAPCONC (FUNCTION
+			      (LAMBDA (Y)
+			       (COND [(AND [DELIM Y] [NEQ Y 32.] [NEQ Y 34.])
+				      (LIST %SLASH Y)]
+				     [T (LIST Y)])))
+			     (AEXPLODE X)))
+	      (RPLACA (LAST X) 41.)
+	      (READLIST (RPLACA X 40.))])))
+   L))
+
+(DEFV EDITMACROS (
+       (MAKEFN (EX ARGS N M)
+	      (IF 'M
+		  ((BI N M) (LC . N) (BELOW \))
+		  ((IF 'N ((BI N) (LC . N) (BELOW \)))))
+	      (E (MAPC '(LAMBDA (X Y) (EDITDSUBST X Y (/#/#))) 'ARGS (CDR 'EX)) T)
+	      (E (APPLY 'DE (CONS (CAR 'EX) (CONS 'ARGS (/#/#)))))
+	      UP 
+	      (1. EX))
+      (REPACK X (LC . X) REPACK <)
+      (REPACK NIL 
+	      (IF (CONSP (/#/#)) (1.) NIL)
+	      (I : (PRIN1 (READLIST (EDITE (EXPLODE (/#/#)) NIL NIL)))))
+      (NEX (X) (BELOW X) NX)
+      (NEX NIL (BELOW _) NX)
+      (THIRD X (ORR ((LC . X) (LC . X) (LC . X))))
+      (SECOND X (ORR ((LC . X) (LC . X))))
+      (SORT X (LC . X) SORT <)
+      (SORT NIL 
+	    (IF (CDR L) (UP 1.) NIL)
+	    (I : (SORT (/#/#)))
+	    (IF (CDR L) (1.) NIL))
+      (UNPACK (X) (LC . X) UNPACK <)
+      (UNPACK NIL 
+	      (IF (CDR L) (UP 1.) NIL)
+	      (I : (UNPACKSTRING (/#/#)))
+	      (IF (CDR L) (1.) NIL))))
+
+(DEFV EDITOPS
+     ((INSERT (BEFORE AFTER FOR) (EDIT: /#2 /#3 /#1))
+      (REPLACE (WITH BY) (EDIT: : /#1 /#3))
+      (CHANGE (TO) (EDIT: : /#1 /#3))
+      (DELETE NIL (EDIT: : /#1 NIL))
+      (EMBED (IN WITH) (EDITMBD /#1 /#3))
+      (SURROUND (WITH IN) (EDITMBD /#1 /#3))
+      (MOVE (TO) (EDITMV /#1 (CAR /#3) (CDR /#3)))
+      (EXTRACT (FROM) (EDITXTR /#3 /#1))))
+
+(DEFPROP EDITL0 **EDITOR** ERXACTION)
+
+(DEFV EDITCOMSL (S R I N FS F= ORF NTH IF RI RO LI LO BI BO M ORR MBD XTR 
+		 THRU TO A B : AFTER BEFORE FOR MV LP LPQ LC LCL BELOW SW 
+		 BIND COMS COMSQ INSERT REPLACE CHANGE EMBED SURROUND MOVE 
+		 EXTRACT SECOND THIRD MAKEFN))
+
+(DEFV USERMACROS NIL)
+
+(DEFV LASTWORD NIL)
+
+(DEFV EDITV NIL)
+
+(DEFV EDITRACEFN NIL)
+
+(DEFV UPFINDFLG T)
+
+(DEFV MAXLEVEL 300.)
+
+(DEFV MAXLOOP 30.)
+
+(DEFV EDITPLEV 2.)
+ 

@@ -1,0 +1,369 @@
+{;; -*-Mode:UCILSP-*-  }
+
+{;; Make the vertical bar a comment character, like ^Y in disk files.}
+
+(SETQ *RAISE T)
+(modchr 124. (modchr 25.))
+
+|
+|  Adopted from MacLisp SETF implementation.
+|
+|	 (c) Copyright 1980 Massachusetts Institute of Technology 
+|        (c) Copyright 1982 R. Cohen, University of Texas at Austin
+|
+|  See MacLisp source in [MIT-AI] LISPM2; SETF >
+
+| NOTE: These macros make no attempt to preserve order of evaluation,
+|       or number of times evaluation, in the reference being expanded.
+|       The caller should not depend on such things.
+
+
+| ZetaLisp GETDECL is equivalent to ELISP GET.
+|
+|(Dm GETDECL (X) (CONS 'GET (CDR X)))
+
+|
+| MacLisp SYMBOLP is equivalent to ELISP ATOM, and
+| MacLisp (ATOM  x) is (NOT (CONSP x)).
+
+(Dm SYMBOLP (X) (CONS 'ATOM (CDR X)))
+
+|
+| MacLisp's FUNCALL is a spread version of APPLY
+|
+| Thus (FUNCALL FOO X Y Z) => (APPLY FOO (LIST X Y Z))
+
+(Dm FUNCALL (%Funcall) `(Apply ,(Cadr %Funcall) (List ,,(Cddr %Funcall))))
+
+|
+| ELISP defines NTH as NTHCDR, and does not normally define NTHCAR at all.
+| Define NTHCDR just so we keep straight which we are using later on.
+| (NTHCar has a CONSP guard in it to avoid getting an error when you
+|  go off the end of an atom.)
+
+(Dm NTHcar (%Nthcar) `(Car (Consp (Nth ,,(Cdr %Nthcar)))))
+
+(Dm NTHcdr (%Nthcdr) `(Nth ,,(Cdr %Nthcdr)))
+
+|
+| MACROEXPAND-1 is needed later.  (This is normally defined in MacLisp
+| source file MACROS.LSP.  The definition depends on how ELISP applies
+| macro definitions to get the resulting expansion.)
+
+(De MacroExpand-1 (Form)
+    {;; Expand the top-level macro call if (CAR FORM) is a macro,
+	otherwise return FORM unchanged. }
+    (With (TM)
+	  (If (And (Consp Form)
+		   (Atom (Car (Consp Form)))
+		   (Memq (Car (Setq TM (Fundef (Car Form)))) '(Macro MSubr)))
+	      (If (Eq (Car TM) 'MSubr)
+		      || MSubr's can be applied directly
+		  (Apply TM (List Form))
+		      || Symbolic Macro defns must be applied as LAMBDA forms.
+		  (Apply (Cdr TM) (List Form)))
+	      || If not a top-level macro call, return unchanged.
+	      Form)))
+
+
+|                                                                        |
+|                               S E T F                                  |
+|                                                                        |
+
+
+(Dm SETF (X) (SETF-1 X))
+
+|
+| Declare Compiler Action for the ELISPC compiler:
+|
+
+(COND [(Fundef 'DCA)
+       (DCA Setf T Macro)])
+
+
+(DE SETF-1 (FORM)
+    (OR (EQ (LENGTH FORM) 3)
+	(Call-Error SETF "Wrong number of arguments" FORM)) 
+    (With [(REF (CADR FORM))
+	   (VAL (CADDR FORM))
+	   EXPANDED-FORM
+	   FCN]
+	  (Until EXPANDED-FORM
+	    (COND [(SYMBOLP REF)
+		   {;; Special case needed.}
+		   (Setq EXPANDED-FORM (LIST 'SETQ REF VAL))]
+		  [(NOT (SYMBOLP (CAR REF)))
+		   (Call-Error SETF "Non-atomic function" (CAR REF))]
+		  [(SETQ FCN (GET (CAR REF) 'SETF))
+		   (Setq EXPANDED-FORM (SetF-APPLY FCN REF T VAL))]
+		  [(SETQ FCN (GET (CAR REF) 'SETF-EXPANDER))
+		   (SETQ REF (SetF-APPLY FCN REF NIL NIL))]
+		  [(NOT (EQ REF (SETQ REF (MACROEXPAND-1 REF))))]
+		  [T (Call-Error SETF
+	                  "No SETF property found, can't invert this reference"
+			  FORM)]))
+	  Expanded-Form))
+
+(De SetF-APPLY (FCN REF VAL-P VAL)
+    {;; FCN is the SETF property for the CAR of REF.  It is either an atom,
+	in which case it is the name of a function to be evaluated, or it is
+	of the form (PATTERN . SETF-FORM), and we should match the pattern
+	and make the appropriate substitutions into the SETF-FORM.  The
+	SETF-FORM will use the atom VAL in the place that the value should
+	appear.  (The VAL-P flag indicates when FCN is a SETF property, which
+        needs the VAL argument, or a SETF-EXPANDER, which does not.)}
+
+    (COND [(OR [ATOM FCN] [EQ (CAR FCN) 'NAMED-LAMBDA])
+	   (COND [VAL-P (FUNCALL FCN REF VAL)]
+		 [T (FUNCALL FCN REF)])]
+	  [T (With [(Pattern (Cdar FCN))
+		    (SetF-Form (Cdr FCN))
+		    (REF (Cdr REF))
+		    (Subs (AND VAL-P (LIST (CONS 'VAL VAL))))]
+	        (While (And [Consp Pattern] [Consp Ref])
+		       (Setq Subs (Cons (Cons (Car Pattern) (Car Ref)) Subs))
+		       (Pop Pattern)
+		       (Pop Ref))
+		(COND [(AND [ATOM PATTERN] [NOT (NULL PATTERN)])
+		       (PUSH SUBS (CONS PATTERN REF))]
+		      [(OR PATTERN REF)
+		       (Call-Error SETF "Reference not same length as pattern"
+				   REF)))
+		(Sublis Subs SetF-Form)
+		)]))
+
+
+
+|
+| LOCF stuff left out.
+|
+
+(Dm INCF (%INCF)
+    (With [(Reference (Cadr %INCF))
+	   (Amount (Caddr %INCF))]
+	  (IF (NULL AMOUNT)
+	      `(SETF ,REFERENCE (Add1 ,REFERENCE))
+	      `(SETF ,REFERENCE (Plus ,REFERENCE ,AMOUNT)))))
+
+(Dm DECF (%DECF)
+    (With [(Reference (Cadr %INCF))
+	   (Amount (Caddr %INCF))]
+	  (IF (NULL AMOUNT)
+	      `(SETF ,REFERENCE (Sub1 ,REFERENCE))
+	      `(SETF ,REFERENCE (Difference ,REFERENCE ,AMOUNT)))))
+
+(Dm SWAPF (%SWAPF)
+    (With [(A (Cadr %SWAPF))
+	   (B (Caddr %SWAPF))]
+	  `(SETF ,A (PROG1 ,B (SETF ,B ,A)))))
+
+|
+| -- Extend PUSH and POP to general variables
+|
+|    Remember that in ELISP the arguments are (PUSH REFERENCE VALUE)
+
+(Dm PUSHF (%PUSHF)
+    (With [(Reference (Cadr %PUSHF))
+	   (Value-Form (Caddr %PUSHF))]
+	  `(Setf ,Reference (Cons ,Value-Form ,Reference))))
+
+(Dm POPF (%POPF)
+    (With [(Reference (Cadr %POPF))
+	   (Value-Form (Caddr %POPF))
+	   (Tem (Cond [(Atom (Cadr %POPF)) (Cadr %POPF)]
+		      [T (Gensym)]))]
+	  `(With [,Tem ,Value-Form]
+		 (Prog1 (Car ,Tem) (Setf ,Reference (Cdr ,Tem))))))
+
+
+| Load time defprops for SETF and LOCF.
+| Value of the SETF property is either an atom (which is a function
+|   which is applied to two arguments: the reference and the value 
+|   to be stored into it), or it is CONS of a 1-level pattern to
+|   match against REF and a form in which substitutions
+|   are made for the symbol VAL and the pattern atoms.
+
+| A SETF-EXPANDER property looks like a LOCF property,
+| but instead of telling how to get the location of the value
+| it gives another expression for the same value.
+| The idea is that that expression will be amenable to SETF/LOCF.
+
+(Defprop GetVector
+	 ((GetVector Vector  Subscript) . (SetVector Vector Subscript Val))
+	 SetF)
+
+(Defprop GetIArray
+	 ((GetIArray Array Subscript) . (SetIArray Array Subscript Val))
+	 SetF)
+(Defprop GetBArray
+	 ((GetBArray Array Subscript ByteSize) .
+	  (SetBArray Array Subscript ByteSize Val))
+	 SetF)
+(Defprop GetRArray
+	 ((GetRArray Array Subscript) . (SetRArray Array Subscript Val))
+	 SetF)
+
+
+(DEFPROP CDR ((CDR ITEM) . (RPLACD ITEM VAL)) SETF)
+
+(DEFPROP CAR ((CAR LIST) . (RPLACA LIST VAL)) SETF)
+
+(DEFPROP CDDR ((CDDR ITEM) . (CDR (CDR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDDR ((CDDDR ITEM) . (CDR (CDDR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDDDR ((CDDDDR ITEM) . (CDR (CDDDR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDDAR ((CDDDAR ITEM) . (CDR (CDDAR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDAR ((CDDAR ITEM) . (CDR (CDAR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDADR ((CDDADR ITEM) . (CDR (CDADR ITEM))) SETF-EXPANDER)
+(DEFPROP CDDAAR ((CDDAAR ITEM) . (CDR (CDAAR ITEM))) SETF-EXPANDER)
+(DEFPROP CDAR ((CDAR ITEM) . (CDR (CAR ITEM))) SETF-EXPANDER)
+(DEFPROP CDADR ((CDADR ITEM) . (CDR (CADR ITEM))) SETF-EXPANDER)
+(DEFPROP CDADDR ((CDADDR ITEM) . (CDR (CADDR ITEM))) SETF-EXPANDER)
+(DEFPROP CDADAR ((CDADAR ITEM) . (CDR (CADAR ITEM))) SETF-EXPANDER)
+(DEFPROP CDAADR ((CDAADR ITEM) . (CDR (CAADR ITEM))) SETF-EXPANDER)
+(DEFPROP CDAAAR ((CDAAAR ITEM) . (CDR (CAAAR ITEM))) SETF-EXPANDER)
+(DEFPROP CADR ((CADR ITEM) . (CAR (CDR ITEM))) SETF-EXPANDER)
+(DEFPROP CADDR ((CADDR ITEM) . (CAR (CDDR ITEM))) SETF-EXPANDER)
+(DEFPROP CADDDR ((CADDDR ITEM) . (CAR (CDDDR ITEM))) SETF-EXPANDER)
+(DEFPROP CADDAR ((CADDAR ITEM) . (CAR (CDDAR ITEM))) SETF-EXPANDER)
+(DEFPROP CADAR ((CADAR ITEM) . (CAR (CDAR ITEM))) SETF-EXPANDER)
+(DEFPROP CADADR ((CADADR ITEM) . (CAR (CDADR ITEM))) SETF-EXPANDER)
+(DEFPROP CADAAR ((CADAAR ITEM) . (CAR (CDAAR ITEM))) SETF-EXPANDER)
+(DEFPROP CAAR ((CAAR ITEM) . (CAR (CAR ITEM))) SETF-EXPANDER)
+(DEFPROP CAADR ((CAADR ITEM) . (CAR (CADR ITEM))) SETF-EXPANDER)
+(DEFPROP CAADDR ((CAADDR ITEM) . (CAR (CADDR ITEM))) SETF-EXPANDER)
+(DEFPROP CAADAR ((CAADAR ITEM) . (CAR (CADAR ITEM))) SETF-EXPANDER)
+(DEFPROP CAAADR ((CAAADR ITEM) . (CAR (CAADR ITEM))) SETF-EXPANDER)
+(DEFPROP CAAAAR ((CAAAAR ITEM) . (CAR (CAAAR ITEM))) SETF-EXPANDER)
+
+(DEFPROP NTHcar ((NTHcar N LIST) . (CAR (NTH N LIST))) SETF-EXPANDER)
+
+(DEFPROP NTH ((NTH LIST N) . (CDR (NTH LIST (Sub1 N)))) SETF-EXPANDER)
+
+||
+|| Allow function definition via SETF
+||
+
+(Defprop FUNDEF fundef-setf setf)
+
+(De Fundef-SetF (Ref Val)
+    (Or (Symbolp (Cadr REF))
+	(Call-Error FUNCTION-SETF "Cannot SetF non-atomic function name." ref))
+    `(Alias ',(Cadr REF) ,VAL))
+
+(Defprop PLIST ((Plist Foo) . (Rplacplist Foo Val)) SetF)
+
+(DEFPROP GET ((GET ATOM PROP) . (PUTPROP ATOM VAL PROP)) SETF)
+
+(DEFPROP ARG ((ARG N) . (SETARG N VAL)) SETF)
+
+|
+| Interface to ELISP's DS (nee DEFSTRUCT)
+
+(Defprop Get-Str-Field ((Get-Str-Field Type Object Index) .
+			(Set-Str-Field Type Object Index Val))  SetF)
+
+|
+| Use back-quote as (setf `(a ,x ,y b) '(a new-x new-y b))
+
+(Defprop BACK-QUOTE Back-Quote-Setf-Expander Setf-Expander)
+
+(De BACK-QUOTE-SETF-EXPANDER (Ref)
+    {;; Use the macro definition to get a s-expression that ref
+	is equivalent to.}
+    (Apply (Fundef 'Back-Quote) (List Ref))) 
+
+
+| handle setf of backquote expressions, for decomposition.
+| for example, (setf `(a ,b (d ,xyz)) foo)
+| sets b to the cadr and xyz to the cadaddr of foo.
+| the constants in the pattern are ignored.
+
+| backquotes which use  ,, other than at the end of a list
+| expand into appends and cannot be setf'd.
+
+
+| this was used for making (setf `(a ,b) foo) return t if
+| foo matched the pattern (had a as its car).
+| the other change for reinstalling this
+| would be to replace the progns with ands
+| in the expansions produced by (list setf), etc.
+
+| -- the maclisp file had this version commented out, and used the
+|    following one.  the progn => and changes were also made.
+
+(de setf-match (pattern object)
+    (cond [(null pattern) t]
+	     [(symbolp pattern)
+	      `(progn (setq ,pattern ,object) t)]
+	     [(eq (car pattern) 'quote)
+	      `(equal ,pattern ,object)]
+	     [(memq (car pattern)
+		    '(cons list list*))
+	      `(setf ,pattern ,object)]
+	     [t `(progn (setf ,pattern ,object) t)]))
+
+| this is used for ignoring any constants in the
+| decomposition pattern, so that (setf `(a ,b) foo)
+| always sets b and ignores a.
+
+{;; use previous definition 
+
+(defun setf-match (pattern object)
+       (cond ((and (not (atom pattern)) (eq (car pattern) 'quote))
+	      nil)
+	     (t `(setf ,pattern ,object))))                           }
+
+
+(defprop list list-setf setf)
+
+(de list-setf (pattern value-form)
+    (with [variable args accum (i 0)]
+	  (cond [(symbolp value-form)
+		 (setq variable value-form)
+		 (setq value-form  nil)]
+		[t (setq variable (gensym))])
+	  (do for args on (cdr pattern)
+	      (incr i)
+	      (push accum (setf-match (car args) `(nthcar ,variable ,i))))
+	  (cond [value-form
+		 `(let [(,variable ,value-form)]
+		       (and  ,,(dreverse accum)))]
+		[t (cons 'and (dreverse accum))])))
+
+
+(defprop list* list*-setf setf)
+
+(de list*-setf (pattern value-form)
+    (with [variable args accum (i 0)]
+	  (cond [(symbolp value-form)
+		 (setq variable value-form)
+		 (setq value-form nil)]
+		[t (setq variable (gensym))])
+	  (do for args on (cdr pattern)
+	      (incr i)
+	      (cond [(cdr args)
+		     (push accum (setf-match (car args)
+					     `(nthcar ,variable ,i)))]
+		    [T (PUSH ACCUM
+			     (SETF-MATCH (CAR ARGS) `(NTHcdr ,VARIABLE ,i)))]))
+	  (COND [VALUE-FORM
+		 `(LET ((,VARIABLE ,VALUE-FORM))
+		       (AND  ,,(Dreverse ACCUM)))]
+		[T (CONS 'AND (Dreverse ACCUM))])))
+
+(Defprop CONS CONS-SETF SETF)
+
+(DE CONS-SETF (PATTERN VALUE-FORM)
+    (With [Variable Args Tem]
+	  (COND [(SYMBOLP VALUE-FORM)
+		 (SETQ VARIABLE VALUE-FORM)
+		 (Setq VALUE-FORM NIL)]
+		[T (SETQ VARIABLE (GENSYM))])
+	  (LET [(TEM `(AND ,(SETF-MATCH (CADR PATTERN) `(CAR ,VARIABLE))
+			      ,(SETF-MATCH (CADDR PATTERN) `(CDR ,VARIABLE))))]
+	       (COND [VALUE-FORM
+		      `(LET ((,VARIABLE ,VALUE-FORM))
+			    ,TEM)]
+		     [T TEM]))))
+
+   

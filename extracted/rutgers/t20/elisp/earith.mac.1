@@ -1,0 +1,204 @@
+        TITLE ARITH - FORTRAN INTERFACE (ONE ARGUMENT FUNCTIONS)
+;
+;
+;
+
+	search monsym
+
+	entry lsqrt,log,log10,lsin,lcos,lacos,lasin,latan
+	entry lsinh,lcosh,ltanh,lexp,lfloat,random,lsind,lcosd
+	entry forer.,arithi,lsetrn,lsavrn
+	nil=0
+	nil1=1
+	w2=2
+	w3=3
+	w4=4
+	o1=5
+	o2=6
+	o3=7
+	o4=10
+	o5=11
+	o6=12
+	free=13
+	n=14
+	sp=15
+	q=16
+	p=17
+	extern dsqrt,dsin,dcos,datan,acos,asin
+	extern dlog,dlog10,sinh,cosh,tanh,dexp,ran,sind,cosd
+	extern getflo,retflo,retif,ret1nt,get1nt,symlst,setran,savran
+
+	codsec==1
+
+	opdef rarg [400400,,0]
+	opdef iarg [400100,,0]
+	opdef ret [popj p,]
+
+;
+forer.:	pushj p,forpt		;print error message
+;
+forpt:	push p,nil1		;save a register
+	move nil1,-1(p)		;get old PC
+	ldb nil1,[point 4,-1(nil1),12] ;get AC field from XCT
+	cain nil1,10		;string specified?
+	skipa nil1,@-1(17)	;load address of string
+	movei nil1,[asciz /Overflow/] ;default
+	tlo nil1,777777		;make ASCIZ
+	esout
+	hrroi nil1,[asciz /
+/]                              ;end with CRLF
+	psout
+	pop p,nil1		;restore reg
+	aos (p)			;skip arg to XCT
+	popj p,
+;
+;SCOMP - for single-precision functions
+scomp:	push p,[0]		;flag whether d.p.
+	pushj p,getflo		;arg to w2/w3
+	setom (p)		;single precision - set flag
+	movem w2,reaarg
+	push p,q		;Q is arg reg
+	xmovei q,arglis
+	pushj p,(w4)
+	pop p,q
+	move w2,nil
+	setz w3,
+	setzb nil,nil1
+	pop p,w4
+	jumpn w4,retif
+	jrst retflo
+;
+;COMP - here to call a floating function whose address is in W4, arg in O1
+comp:	push p,[0]		;flag whether d.p.
+	pushj p,getflo		;arg to w2/w3
+	setom (p)		;single precision - set flag
+	dmovem w2,reaarg		
+	push p,q		;Q is arg reg
+	xmovei q,arglis
+	pushj p,(w4)
+	pop p,q
+	dmove w2,nil
+	setzb nil,nil1
+	pop p,w4
+	jumpn w4,retif
+	jrst retflo
+
+;one long real arg
+	xwd -1,0		;one arg
+arglis:	rarg reaarg		;here is the arg
+	0
+
+reaarg:	0			;place for arg
+	0
+
+;one integer arg
+	xwd -1,0		;one arg
+irglis:	iarg reaarg		;here is the arg
+	0
+
+lsqrt:	movei w4,dsqrt
+	jrst comp
+log:	movei w4,dlog
+	jrst comp
+log10:	movei w4,dlog10
+	jrst comp
+lsin:	movei w4,dsin
+	jrst comp
+lcos:	movei w4,dcos
+	jrst comp
+lsind:	movei w4,sind
+	jrst scomp
+lcosd:	movei w4,cosd
+	jrst scomp
+lacos:	movei w4,acos
+	jrst scomp
+lasin:	movei w4,asin
+	jrst scomp
+latan:	movei w4,datan
+	jrst comp
+lsinh:	movei w4,sinh
+	jrst scomp
+lcosh:	movei w4,cosh
+	jrst scomp
+ltanh:	movei w4,tanh
+	jrst scomp
+lexp:	movei w4,dexp
+	jrst comp
+
+lfloat:	pushj p,getflo		;arg to w2/w3
+	jrst retif		;single precision - return float
+	ret			;already double precision
+
+random:	push p,q
+	movei q,ranarg
+	pushj p,ran
+	pop p,q
+	move w2,nil
+	setz w3,
+	setzb nil,nil1
+	jrst retif
+
+	0
+ranarg:	0
+	0
+;
+
+lsetrn:	movei w4,setran
+	jrst intin
+
+;here to pass an integer, Lisp version in O1
+intin:	pushj p,get1nt
+	movem w2,reaarg		;put down the arg
+	push p,q		;save Q, which is arg reg
+	xmovei q,irglis
+	pushj p,(w4)
+	pop p,q
+	setz o1,
+	setzb nil,nil1
+	popj p,
+
+lsavrn:	movei w4,savran
+	jrst intout
+
+intout:	push p,q
+	xmovei q,irglis
+	pushj p,(w4)
+	pop p,q
+	move w2,reaarg
+	setzb nil,nil1
+	jrst ret1nt
+
+;This routine is needed to get some of the functions (ACOS, ASIN,
+;SINH, COSH, and TANH) to run in extended addressing.  The only
+;problem I have found is that these functions do internal calls.
+;So we look for all occurences of MOVEI Q,ARG and
+;  - change it to XMOVEI
+;  - set to IFIW bit in the argument
+;I have verified that all cases have exactly one arg
+;This routine must be run while this module is the most recent
+;one loaded, since it uses SYMLST to find the end of the place to
+;patch.
+
+arithi:	move o1,[xmovei q,0]
+	move o2,[xwd 400000,0]
+	xmovei w2,starti	;search from here to end of this load
+	move w3,symlst
+	move w3,1(w3)		;aobjn word for symbol table
+	hrli w3,codsec		;stop search here
+ariti1:	caml w2,w3		;OK?
+	jrst ariti3		;done
+	hlrz w4,(w2)		;get the opcode part
+	caie w4,(movei q,0)	;is it bad?
+	jrst ariti2		;no
+	hllm o1,(w2)		;fix opcode to XMOVEI
+	hrrz w4,(w2)		;get effective address
+	hrli w4,codsec
+	iorm o2,(w4)		;set IFIW bit
+ariti2:	aoja w2,ariti1
+	
+ariti3:	setzb o1,o2		;clear junk from here
+cpopj:	popj p,
+
+starti:
+
+        END

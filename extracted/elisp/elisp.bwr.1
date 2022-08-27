@@ -1,0 +1,240 @@
+This document describes the limitations in the first "released" version
+of ELISP.
+
+The original commitment was that by the end of the summer I would have
+something that looked like UCI Lisp (not necessarily all of R/UCI Lisp),
+except for changes in internal representations, and clearly
+system-specific functions.  I believe that this commitment is met, with
+the following exceptions.
+
+  - The scanner package (SCAN), which is used by MLISP, will not work.
+	It depends upon details of the read character tables.  Although
+	my READ is table-driven, the codes are different.  It would not
+	be hard to make SCAN work if necessary, but I don't think any of
+	our people are using it.  I would prefer to redesign SCAN 
+	slightly if anyone needs this capability.
+
+  - MODCHR changes only input characteristics.  I.e. if you MODCHR $ to
+	act like (, it will work on input, but lists will still be
+	printed with ( on output.  The full pretty-printer is 
+	implemented.  So if you have defined print macros, those will
+	all continue to work.
+
+  - Some of the system functions defined in the appendices of the Lisp 1.6
+	manual are not implemented.  These are mostly things that
+	involve interface to compiled code and are otherwise implementation
+	specific.
+
+  - The things labelled "system-building functions" in UCI Lisp are not
+	implemented.  Most of them involve control of the structure of
+	your core image.  That is completely automatic now.  At some
+	point I will provide ways to build big systems, where several
+	users can share code and/or data.  At the moment the system is
+	changing often enough that I don't think sharing is a good idea.
+	(I.e. if you save .EXE files and we are changing ELISP.EXE all
+	the time, your .EXE files will tend to get blown away a lot.)
+
+  - Certain file functions (RENAME, *RENAME, DELETE, and maybe one or
+	two others) do not work.  They depend so strongly on odd
+	formats for the file specs that I didn't want to move them over.
+	They have been replaced by functions that do the same thing, but
+	use strings for file specs.  I can supply the old ones if
+	someone really has to have them.
+
+The following differences will also be present.  They are consistent
+with the announced goals, and will be removed as time is available:
+
+  - There will be incompatibilities in low-level representations. The
+	only ones we have found that cause any trouble are the fact that
+	functions are not stored on properties.  We have a version of
+	GET and GETL that you can use in place of the standard ones if
+	you can't convert your program.  They simulate EXPR, FEXPR, and
+	MACRO properties.  It has generally proven fairly easy to fix
+	programs to use FUNDEF and ALIAS to handle function definitions.
+	I will shortly supply a compatibility package for UCI Lisp, that
+	defines these functions in UCI Lisp.  So I would like to see
+	people move to the new functions.  The compiler and DSKIN do
+	understand (DEFPROP FOO code EXPR).
+
+  - The structure of the compiler is completely different.  I doubt that
+	anyone cares what the format of a Lap file is, as long as it is
+	documented.  However there are some differences in the way
+	macros are handled that have caused trouble to some of our users
+	until they got used to it.
+
+  - # is defined as a read macro, so variables using it will have to
+	be changed.  Alternatively if you don't want the new features,
+	you can turn off the read macro.
+
+
+
+Here are some known problems:
+
+  %PRINFN gets set to NIL now and then.  This causes the break package
+	to give strange error messages.  Typically non-numeric value
+	passed to numeric function.  You can recover by saying
+	   (SETQ %PRINFN 'PRINLEV)
+	If I can reproduce the problem, I will fix it.  (Indeed it may
+	be fixed already.)
+
+  "invalid source/destination designator" (and possibly also "invalid
+	simultaneous access") from compiler and other programs.  This
+	occurs after an error, because files are not closed when you ^^
+	out of the break package.  You can usually continue by doing a
+	CLOSE command from the EXEC.  We are working on a design for
+	a fix, but it is unclear in general when we can safely close
+	a file.  The user's program is really supposed to do this.
+	(And by proper use with WITHIN and WITHOUT you can get closing
+	even after errors.)
+
+
+I have just converted microplanner from the R/UCI version.  Since this
+is a fairly large package that uses many tricks, my experience in
+conversion may be interesting.  Here is a list of the changes I had to
+make.  Note that I did not have to convert the general form of the file,
+since ELISP now understands DEFPROP format:
+
+   DECLARE - remove the call to DECLARE, since the new compiler doesn't
+	understand this any more (it is unneeded, because the only
+	declaration left in source files is SPECIAL [even that will go
+	away soon]).  Removed everything from inside the SPECIAL, i.e.
+	*FEXPR, etc., except kept the SPECIAL decl's, removing them from
+	the DECLARE.
+
+   VALUE - one function did the following rather odd thing:
+	    (NCONC (GET 'THALIST 'VALUE) (LIST Y))
+	This NCONC's (LIST Y) to the value of THALIST.  It doesn't work
+	in ELISP, because there is no VALUE property.  Actually even in
+	RUTLSP, this appears to be odd code.  It seems to be slower than
+	the more obvious
+	     (SETQ THALIST (NCONC THALIST (LIST Y)))
+	which is what I replaced it with
+
+   PROGN - there were some function definitions inside PROGN.  It is
+	unclear why they were there.  My theory is that someone wanted
+	to force them not to be compiled.  Unfortunately, because they
+	are in DEFPROP format, they didn't work.  DSKIN converts
+	DEFPROP's, but only ones that appear at top level.  I had to
+	convert the DEFPROP's here into DE's.
+
+  NOCOMPILE - I removed the NOCOMPILE with the list of all functions. It
+	should work OK, but I haven't tested that.
+
+---------------------------------------------------------------------
+
+A user complained that USERERRORX does not work as documented for
+R/UCI Lisp.  It is supposed to let the user trap errors and return
+his own values in place of the erroneous computation.  A detailed
+discussion follows.  In brief, I conclude that this feature is ill
+defined, and does not do anything useful in R/UCI Lisp, and therefore
+should not be implemented, at least not in its present form, in Elisp.
+
+I have played a bit with USERERRORX.  It should be able to return a
+value for "correctable" errors.  I looked through the source for
+R/UCI Lisp, found all the correctable errors, and tried them out.
+In most cases it is impossible to actuallly continue.  The problem
+is that they have the same error code that I do.  I.e. when something
+invalid happens, they JRST to the error handler.  If USERERRORX
+returns a value, they simply do a POPJ.  This causes it to return
+to whatever happens to be on the top of the stack.  It is assumed
+to be an address.  If something else happens to be pushed on the stack
+(e.g. a local temporary whose value needed to be saved), they may return
+to something other than an address.  Furthermore, I was unable to make
+any sense out of
+
+  - which errors are correctable and which aren't.  That is, I
+	don't see what is more correctable about some of these
+	than about some that aren't shown as correctable.
+
+  - how USERERRORX could know what the error was, particularly in
+	compiled code.  This would seem to be needed if it is to
+	be able to know what to return.
+
+  - what is supposed to be done with the value returned by
+	USERERRORX.
+
+Here is the complete set of results:
+
+  Undefined function - the value returned by USERERRORX is used as
+	the value of the form.
+
+  Unbound variable - the value returned by USERERRORX is used as
+	the value of the variable.
+
+  Non-numeric argument - PLUS and ADD1: the value returned by USERERROX
+	is used as the value of the form.  The addition is not
+	performed.  NTH: the value returned by USERERRORX is used as the
+	number and NTH is performed  normally.  RPTQ: infinite loop.
+	MODCHR: ill mem ref
+
+  Too many args - apply! - ill mem ref
+
+  Undefined function - apply! - ill mem ref
+
+  Undefined PROG tag - GO - illegal instruction
+
+  No INPUT - INC - illegal instruction
+
+  No OUTPUT - OUTC - illegal instruction
+
+  Can't find file - illegal instruction
+
+  Can't write file - illegal instruction
+
+In my opinion, if you want to return values from USERERRORX, you will
+either have to be content to do it the way the normal error handler does
+it, or we will have to define a consistent semantics for USERERRORX. In
+my opinion, in order to correct the error, you need at least the
+following information: 
+
+  - the type of error
+
+  - the erroneous value
+
+Probably you actually need more than that, and correction is really
+going to work only in interpreted code, where you can look around at the
+context on the stack.  In that case, you can use RETFROM to return, as
+the normal break system does.  However if you want it to work in
+compiled code, then I think we should concentrate on a few cases for
+which we can reasonably define the semantics, e.g.
+
+  USERERRORX is a function with the following args:
+
+	ERRORTYPE - this is the error message, as a text string
+      
+	BADARG - this is the erroneous argument
+
+	CORRECTABLE - NIL or T
+
+	It returns NIL to abort.  If it wants to return a value to be
+	used as the correction, it must NCONS the value.  (With the old
+	definition, you can't return NIL.)
+
+  Here is a list of all correctable errors and what will happen:
+ 
+	Undefined function - USERERRORX returns a function, which is
+		used with the same arguments as the original.
+
+	Unbound variable - USERERRORX returns a value, which is used
+		as if it were the value of the variable.  (Or should
+		it return a new variable, which will then be used
+		in place of the erroneous one?)
+
+	Non-numerical argument - USERERRORX returns a value, which is
+		used in place of the erroneous argument.  The
+		computation continues with this value.
+
+	Undefined function - APPLY!  - see Undefined function
+
+	Undefined PROG tag - GO - USERERRORX returns a tag, which is
+		used for the GO.
+
+	Can't find file and can't write file - USERERRORX returns a
+		file name, which is used to retry the operation.
+
+However my own view is that this is not going to be worth the
+implementation time.  I originally did not implement this feature
+because I was convinced that as currently defined, it did not make
+sense.  I think the evidence suggests that I was right.  What do you
+think?
+  

@@ -1,0 +1,325 @@
+{; Macros for simple quoting/unquoting, creating functions }
+
+(DEFPROP BACK-QUOTE "`" PRINTMACRO)
+(DEFPROP COMMA "," PRINTMACRO)
+(DEFPROP DOUBLE-COMMA ",," PRINTMACRO)
+(DM BACK-QUOTE (X) (SETQ X (CADR X))
+    (COND [(ATOM X) (LIST 'QUOTE X)]
+	  [(EQ 'COMMA (CAR X)) (CADR X)]
+	  [(EQ 'DOUBLE-COMMA (CAR X)) (ERROR "? ,, not allowed outside list")]
+	  [T (%%BQL X)]))
+(DE %%BQL (X) (COND [(CONSP X) (%%BQE (CAR X) (%%BQL (CDR X))) ]
+		    [(NULL X) NIL]
+		    [T (LIST 'QUOTE X)]))
+(DE %%BQE (X Y) (SELECTQ (CAR (CONSP X))
+			 [COMMA (COND [(OR (NULL Y) (EQ (CAR (CONSP Y)) 'LIST))
+				     (MCONS 'LIST (CADR X) (CDR Y))]
+				    [T (LIST 'CONS (CADR X) Y)])]
+			 [DOUBLE-COMMA (COND [(NULL Y) (CADR X)]
+				     [(EQ (CAR (CONSP Y)) 'APPEND)
+				      (MCONS 'APPEND (CADR X) (CDR Y))]
+				     [T (LIST 'APPEND (CADR X) Y)])]
+			 ((LAMBDA (Z)
+			   (COND [(OR (NULL Y) (EQ (CAR (CONSP Y)) 'LIST))
+				  (MCONS 'LIST Z (CDR Y))]
+				 [T (LIST 'CONS Z Y)]))
+			  (COND [(ATOM X) (LIST 'QUOTE X)]
+				[T (%%BQL X)]))))
+
+(DE %%%BQ () (LIST 'BACK-QUOTE (READ)))
+(DE %%%CM () (COND [(EQ 44 (PEEKC)) (TYI) (LIST 'DOUBLE-COMMA (READ))]
+		   [T (LIST 'COMMA (READ))]))
+
+(MODCHR (CHRVAL '/,) (MODCHR (CHRVAL '/_)))
+
+(DRM /` %%%BQ)
+(DRM /, %%%CM)
+
+
+{; Handy looping macros }
+
+(DM WHILE (FORM) `(PROG () LOOP (COND ,(CDR FORM)
+				      [T (RETURN NIL)])
+			(GO LOOP)))
+
+(DM UNTIL (FORM) `(PROG () LOOP (AND ,(CADR FORM) (RETURN NIL))
+			,,(CDDR FORM) (GO LOOP)))
+
+
+{; Ron's pet peeve alieviated! }
+
+(DE SAFE-ALIAS (NAME FUNDEF)
+    {; This is equivalent to the function ALIAS, except you are warned }
+     {; if a function is being redefined }
+    (COND [(FUNDEF NAME) (MSG "(" NAME " Redefined) ")])
+    (ALIAS NAME FUNDEF))
+
+{; Structure definition functions, made with vectors }
+
+(DF DS (L)
+  {;; (DS FOO A (B 1) C)}
+ (CREATE-STRUCTURE (CAR L) (CDR L)))
+
+(DE CREATE-STRUCTURE (NAME FIELDS)
+  (COND [(NOT (LITATOM NAME))
+	 (ERROR (LIST "? Structure name must be literal atom"
+		      NAME))])
+
+  {;; (DM MAKE-FOO (L) (MAKE-STRUCTURE (GET 'FOO 'STRUCTURE-FIELDS)
+			 (CDR L)))}
+  (SAFE-ALIAS
+   (READLIST (APPEND (EXPLODEC "MAKE-") (EXPLODE NAME)))
+   (LIST 'MACRO 'LAMBDA '(L) (LIST 'MAKE-STRUCTURE
+				   (LIST 'QUOTE NAME)
+				   (LIST 'GET (LIST 'QUOTE NAME)
+					 ''STRUCTURE-FIELDS)
+				   '(CDR L))))
+
+  {; (DM FOO-P (L) (EQ (STRUCTUREP L) 'FOO)}
+  (SAFE-ALIAS (READLIST (APPEND (EXPLODE NAME) (EXPLODEC "-P")))
+	      (LIST 'EXPR 'LAMBDA '(L) (LIST 'EQ '(STRUCTUREP L)
+					     (LIST 'QUOTE NAME))))
+
+  (PUTPROP NAME (LENGTH FIELDS) 'STRUCTURE-LENGTH)
+  (PUTPROP NAME (PROC-FIELDS NAME FIELDS 1) 'STRUCTURE-FIELDS)
+
+  (SETQ ALLSTRS (ENTER NAME ALLSTRS))
+  NAME)
+
+(DE PROC-FIELDS (STRTYPE SPECS NUMBER)
+  {;; SPECS is the list the user specified, NAME, or (NAME DEF)}
+  {;; Defines the macros}
+  {;; Returns the list (name number default)}
+  (COND ((NULL SPECS) NIL)
+	(T (WITH (NAME STORE DEFAULT)
+	 (COND ((LITATOM (CAR SPECS))
+		(SETQ NAME (CAR SPECS))
+		(SETQ DEFAULT NIL))
+	       ((LITATOM (CAAR SPECS))
+		(SETQ NAME (CAAR SPECS))
+		(SETQ DEFAULT (CADAR SPECS)))
+	       (T (ERROR (LIST "? Structure field name must be literal atom"
+			       (CAR SPECS)))))
+	 {;; (DM A (L) (LIST 'GET-STR-FIELD STRTYPE (CADR L) 0))  }
+	 (SAFE-ALIAS
+	  NAME
+	  (LIST 'MACRO 'LAMBDA '(L)
+		(LIST 'LIST ''GET-STR-FIELD
+		      (LIST 'QUOTE (LIST 'QUOTE STRTYPE))
+		      '(CADR L) NUMBER)))
+	 {;; (DM STORE-A (L) (LIST 'SET-STR-FIELD (CADR L) 1 (CADDR L)))}
+	 (SETQ STORE (READLIST (APPEND (EXPLODEC "STORE-") (EXPLODE NAME))))
+	 (SAFE-ALIAS
+	  STORE
+	  (LIST 'MACRO 'LAMBDA '(L)
+		(LIST 'LIST ''SET-STR-FIELD
+		      (LIST 'QUOTE (LIST 'QUOTE STRTYPE))
+		      '(CADR L) NUMBER '(CADDR L))))
+	 (CONS (LIST NAME NUMBER DEFAULT)
+	       (PROC-FIELDS STRTYPE (CDR SPECS) (ADD1 NUMBER)))))))
+
+
+(DE GET-STR-FIELD (STRTYPE VECTOR INDEX)
+   (AND (OR (AND (VECTORP VECTOR) (EQ (GETVECTOR VECTOR 0) STRTYPE))
+	    (ERROR (LIST (STCONCAT "? Should be a " STRTYPE " but isn't")
+			 VECTOR)))
+	(GETVECTOR VECTOR INDEX)))
+
+(DE SET-STR-FIELD (STRTYPE VECTOR INDEX VALUE)
+   (AND (OR (AND (VECTORP VECTOR) (EQ (GETVECTOR VECTOR 0) STRTYPE))
+	    (ERROR (LIST (STCONCAT "? Should be a " STRTYPE " but isn't")
+			 VECTOR)))
+	(SETVECTOR VECTOR INDEX VALUE)))
+
+(DE MAKE-SPECIFIED-FIELDS (FIELDS SPECS)
+   {;; Fields is the list of field specs: (name number default)}
+   {;; Specs is the list of user args to macro: (name value name val...)}
+   {;; Returns a list of SETVECTOR's:  (SETVECTOR V number val)}
+   (COND ((NULL SPECS) NIL)
+	 (T (CONS (LIST 'SETVECTOR 'V
+			(CADR (OR (ASSOC (CAR SPECS) FIELDS)
+				  (ERROR (LIST "? No such field in structure"
+					       (CAR SPECS)))))
+			(CADR SPECS))
+		  (MAKE-SPECIFIED-FIELDS FIELDS (CDDR SPECS))))))
+
+(DE MAKE-DEFAULT-FIELDS (FIELDS SPECS)
+   {;; Fields is the list of field specs: (name number default)}
+   {;; Specs is the list of user args to macro: (name value name val...)}
+   {;; Returns a list of SETVECTOR's:  (SETVECTOR V number val)}
+   (COND ((NULL FIELDS) NIL)
+	 ((ALT-ASSOC (CAAR FIELDS) SPECS)  {;; User specified this one}
+	  (MAKE-DEFAULT-FIELDS (CDR FIELDS) SPECS))  {;; So don't add def}
+	 ((NULL (CADDAR FIELDS))  {;; Default is NIL}
+	  (MAKE-DEFAULT-FIELDS (CDR FIELDS) SPECS))  {;; Don't need that }
+	 (T (CONS (LIST 'SETVECTOR 'V (CADAR FIELDS) (CADDAR FIELDS))
+		  (MAKE-DEFAULT-FIELDS (CDR FIELDS) SPECS)))))
+
+(DE MAKE-STRUCTURE (STRUCT FIELDS SPECS)
+   {;; Create the code for MAKE-FOO}
+   {;; STRUCT is the structure name, e.g. FOO}
+   {;; SPECS is CDR FORM, the specifiations of fields, if any}
+   (NCONC
+     (COPY '(WITH (V)))
+     (LIST (LIST 'SETQ 'V (LIST 'MAKEVECTOR (ADD1 (LENGTH FIELDS))))
+	   (LIST 'SETVECTOR 'V 0 (LIST 'QUOTE STRUCT)))
+     (DREVERSE (MAKE-SPECIFIED-FIELDS FIELDS SPECS))
+     (DREVERSE (MAKE-DEFAULT-FIELDS FIELDS SPECS))
+     (COPY '(V))))
+
+(DE ALT-ASSOC (ITEM L) 
+  (COND ((NULL L) NIL)
+	((EQ ITEM (CAR L)) T)
+	(T (ALT-ASSOC ITEM (CDDR L)))))
+
+(DE STRUCTUREP (V) 
+   (AND (VECTORP V)
+	(*GREAT (VECTORLENGTH V) 0)
+	(EQUAL (GET (GETVECTOR V 0) 'STRUCTURE-LENGTH)
+	       (SUB1 (VECTORLENGTH V)))
+	(GETL (GETVECTOR V 0) '(STRUCTURE-FIELDS))
+	(GETVECTOR V 0)))
+
+(DE /# NIL 
+  (SELECTQ (TYI)
+     	(40. (WITH (L V)
+		(UNTYI 40.)
+		(SETQ L (READ))
+		(SETQ V (MAKEVECTOR (LENGTH L)))
+		(RDHVEC L V 0)))
+	((83. 115.) {; S s }
+	 (SELECTQ (TYI)
+		  [40. {; ASCII open paren }
+		   (UNTYI 40.)
+
+		   {; Make instance of structure }
+		   (WITH
+		    (L STRUC-NAME STRUC-FIELDS INSTANCE FIELD-SPEC)
+
+		    (SETQ L (READ))
+
+		    (COND [(NULL L) (ERROR "? No name given for structure")])
+
+		    (SETQ STRUC-NAME (CAR L))
+		    (SETQ L (CDR L))
+
+		    (SETQ STRUC-FIELDS (GETL STRUC-NAME '(STRUCTURE-FIELDS)))
+		    (COND [STRUC-FIELDS
+			   (SETQ STRUC-FIELDS (CADR STRUC-FIELDS))
+			   (SETQ INSTANCE (MAKEVECTOR
+					   (ADD1 (LENGTH STRUC-FIELDS))))
+
+			   {; Vector gets structure name, becomes structure }
+			   (SETVECTOR INSTANCE 0 STRUC-NAME)
+
+			   {; Structure gets default values }
+			   (MAPC (F:L (FIELD-SPEC)
+				      (SETVECTOR INSTANCE
+						 (CADR FIELD-SPEC)
+						 (CADDR FIELD-SPEC)))
+				 STRUC-FIELDS)
+
+			   {; Fill user specified fields }
+			   (WHILE L
+				  (SETQ FIELD-SPEC
+					(ASSOC (CAR L) STRUC-FIELDS))
+
+				  (COND [FIELD-SPEC
+					 (COND [(CONSP (CDR L))
+						(SETVECTOR INSTANCE
+							   (CADR FIELD-SPEC)
+							   (CADR L))]
+
+					       [T (ERROR
+						   (LIST
+						    "? No value given for structure field"
+						    (CAR L)))])]
+					[T (ERROR
+					    (LIST
+					     "? No such field in structure"
+					     (CAR L)))])
+				  (SETQ L (CDDR L)))
+			   INSTANCE]
+
+			  [T (ERROR (LIST "? Undefined Structure"
+					  STRUC-NAME))]))]
+		  (ERROR "? Structures must be in parens")))
+	(39. (LIST 'FUNCTION (READ)))
+	(46. (EVAL (READ)))
+	((79. 111.) (WITH (IBASE) (SETQ IBASE 8.) (READ)))
+	(92. (WITH (C)
+		(SETQ C (TYI))  {; peek}
+		(COND ((DELIM C) C)
+		      (T (UNTYI C) (NAMETOCHAR C (READ))))))
+	(ERROR "? Illegal character after #")))
+
+(DE RDHVEC (L V N)
+   {;; Build up a vector from a list - L is list, V vector of NIL's,
+	N is index in vector for next entry}
+   (COND (L (SETVECTOR V N (CAR L))
+	    (RDHVEC (CDR L) V (ADD1 N)))
+	 (T V)))
+
+(MODCHR (CHRVAL '/#) (MODCHR (CHRVAL '/_)))
+
+(DRM /# /#)
+
+(DE NAMETOCHAR (FIRST-CHAR NAME)
+{;; If only one char was given, we want to use it as is, in case it
+    was entered.  thus we get FIRST-CHAR, which is the result of the
+    TYI.  Otherwise, we want to treat it as an atom and check for
+    special names.}
+   (SELECTQ NAME
+	(FORM 14Q)
+	(RETURN 15Q)
+	(LINE 12Q)
+	(RUBOUT 177Q)
+	(SPACE 40Q)
+	(TAB 11Q)
+	(ESCAPE 33Q)
+	(COND ((EQ (FLATSIZEC NAME) 1) FIRST-CHAR)
+	      ([CAR (CONSP (ERRSET (EQSTR (SUBSTRING NAME 1 8) "CONTROL-") NIL]
+	       (BOOLE 1 (NAMETOCHAR (SUBSTRING NAME 9 -1)) 37Q))
+	      (T (ERROR "Unknown character name in #\")))))
+
+(SPECIAL *CLOCKINTERVAL* *CLOCKTABLEN* *CLOCK%CUTOFF*)
+
+(DV *CLOCKINTERVAL* 1)
+
+(DV *CLOCKTABLEN* 300)
+
+(DV *CLOCK%CUTOFF* 2.0)
+
+(DF CLOCK (ARG)
+    (STARTCLOCK *CLOCKINTERVAL* *CLOCKTABLEN*)
+    (EVAL (CAR ARG))
+    (SETQ ARG (STOPCLOCK))
+    (WITH (LIST (NUM (GETVECTOR ARG 0)) (OTHERS 0.0))
+     (CATCH (RPTQ *CLOCKTABLEN*
+	     (OR (GETVECTOR ARG (+ 2 RPTN)) (THROW NIL))
+	     (AND (LT 1 (GETVECTOR ARG (+ (+ 2 *CLOCKTABLEN*) RPTN)))
+		  (SETQ LIST (CONS (CONS (GETVECTOR ARG (+ 2 RPTN)) 
+					 (GETVECTOR ARG (+ (+ 2 *CLOCKTABLEN*)
+							   RPTN)))
+				   LIST)))))
+     (SETQ LIST (SORT LIST (F:L (X Y) (GE (CDR X) (CDR Y)))))
+     (SETQ LIST (MAPCAN (F:L (X) (COND [(GE (CDR (RPLACD X
+							 (// (* (CDR X) 100.0)
+							     NUM)))
+					    *CLOCK%CUTOFF*)
+					(NCONS X)]
+				       [T (SETQ OTHERS (+ OTHERS (CDR X)))
+					  NIL]))
+			LIST))
+     (MSG T T "* * * * " NUM " samples taken * * * *" T)
+     (MSG "Function" (T 20) "Percentage of time spent" T)
+     (MAPC (F:L (X) (MSG 1 (CAR X) (T 20) (CDR X) T)) LIST)
+     (AND (GT (GETVECTOR ARG 1) 0)
+	  (MSG "* Garbage collect" (T 20)
+	       (// (* (GETVECTOR ARG 1) 100.0) NUM) T))
+     (AND (GT OTHERS 0.0)
+	  (MSG "* Fns < " *CLOCK%CUTOFF* "%" (T 20) OTHERS T))
+     (AND (GT (GETVECTOR ARG 2) 0)
+	  (MSG "* Unascertainable" (T 20)
+	       (// (* (GETVECTOR ARG 1) 100.0) NUM) T))))
+

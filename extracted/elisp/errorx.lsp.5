@@ -1,0 +1,567 @@
+
+(SPECIAL *NOPOINT BASE USERERRORX BRKEXP BRKTYPE BRKWHEN BRKCOMS BRKFN
+	 BREAKMACROS %%MSGFLAG !VALUE %LOOKDPTH LASTPOS %%BKPOS %%CMDL
+	 %PREVFN% L LAPLST %FROM %TO CHNGDFLG /#%INDENT /#%BKSAVE TRACE
+	 BKPOS CATCH THROW ^H MACROEXPANSION %%STKLIM %HOOKSTACK)
+
+
+(DE ERRORX (X)
+  (COND [(AND USERERRORX [USERERRORX X])]
+	[T (PROG (%%ERREX %%PREV LASTPOS)
+		 (SETQ %%ERREX
+		       (BREAK1 (COND [(SETQ LASTPOS
+					    (NEXTEV (SUB1 (STKSRCH 'ERRORX
+								   (SPDLPT)
+								   NIL))))
+				      (SETQ %%ERREX (SPDLRT LASTPOS))]
+				     [T (ERR NIL)])
+			       (COND [(CONSP %%ERREX)]
+				     [(AND [SETQ %%PREV (NEXTEV (SUB1 LASTPOS))]
+					   [NEQ (STKNAME %%PREV) '//BREAK1])]
+				     [T (ERR NIL)])
+			       (COND [(ATOM %%ERREX) %%ERREX] [(CAR %%ERREX)])
+			       NIL 
+			       'ERRORX))
+		 (OUTVAL LASTPOS %%ERREX))]))
+
+(DE BREAK1 (BRKEXP BRKWHEN BRKFN BRKCOMS BRKTYPE)
+  {;; The /#%BKSAVE is done in BREAK1 instead of /BREAK1 in case /BREAK1 is
+      restarted <typically via ^C ^B>; the EVAL is done to insure that an eval
+      blip appears on the stack <BREAK1 might be called from compiled code>;
+      Note that /BREAK1 looks for a BREAK1 eval blip immediately preceding the
+      /BREAK1 which won't be the case when BREAK1 is uncompiled so LASTPOS won't
+      be set correctly when debugging the ERRORX package}
+  (SETQ /#%BKSAVE
+	(CONS (MCONS (PROMPT 58.) (INC NIL NIL) (OUTC NIL NIL)) /#%BKSAVE))
+  (EVAL '(//BREAK1)))
+
+(DE //BREAK1 NIL
+  (PROG (LASTPOS MACROEXPANSION %%EVALFLAG !VALUE %%MSGFLAG %%BKPOS %%CMDL)
+	(AND [SETQ LASTPOS
+		   (STKSRCH (COND [(EQ BRKTYPE 'ERRORX) 'ERRORX] ['//BREAK1])
+			    (SPDLPT)
+			    NIL)]
+	     [EQ (STKNAME (SETQ %%BKPOS (NEXTEV (SUB1 LASTPOS)))) 'BREAK1]
+	     [SETQ LASTPOS %%BKPOS])
+	(SETQ %%BKPOS LASTPOS)
+	(SETQ BKPOS NIL)
+	(COND [(NULL BRKWHEN) (FROM?= BRKEXP)])
+	(SETQ LASTPOS (COND [(NEXTEV (SUB1 LASTPOS))] [LASTPOS]))
+	(SETQ %%CMDL (ADD1 LASTPOS))
+	(COND [(NULL %%STKLIM) (GO BRKLP)])
+  UNMAC (COND [(AND [SETQ %%CMDL (NEXTEV (SUB1 %%CMDL))]
+		    [NEQ (STKNAME %%CMDL) '//BREAK1])
+	       (UNMACEXPAND (SPDLRT %%CMDL))
+	       (GO UNMAC)])
+  BRKLP (COND [BRKCOMS (AND [ATOM (SETQ %%CMDL (CAR BRKCOMS))]
+			    [SETQ %%CMDL (NCONS %%CMDL)])
+		       (SETQ BRKCOMS (CDR BRKCOMS))]
+	      [T (INC NIL T)
+		 (OUTC NIL T)
+		 (PROMPT 58.)
+		 (TALK)
+		 (SETQ ^H NIL) 	       {; Clear ^H interrupt flag}
+		 (LINES 1.)
+		 (COND [(NULL %%MSGFLAG)
+			(MSG BRKFN " Broken:" -1.)
+			(SETQ %%MSGFLAG T)])
+		 (PROG (BASE *NOPOINT)
+		       (SETQ BASE 10.)
+		       (SETQ *NOPOINT T)
+		       (PRINC (LENGTH /#%BKSAVE)))
+		 (COND [(ATOM (SETQ %%CMDL (ERRSET (LINEREAD) ERRORX)))
+			(GO BRKLP)]
+		       [T (SETQ %%CMDL (CAR %%CMDL))])])
+  BKLP2 (AND %%MSGFLAG [LINES 0.])
+	(COND [(NULL %%CMDL) (GO BRKLP)])
+	(SELECTQ
+	 [CAR %%CMDL]
+	 [^ (*RSETERX 1.) (ERR NIL)]
+	 [^^ (*RSETERX (LENGTH /#%BKSAVE)) (**TOP**)]
+	 [BK (BKTRACE (BKREAD 512.) '(NIL T T T))]
+	 [BKE (BKTRACE (BKREAD 512.) '(NIL NIL T T))]
+	 [BKF (BKTRACE (BKREAD 512.) '(NIL NIL NIL T))]
+	 [BKV (BKTRACE (BKREAD 512.) '(T T T T))]
+	 [BKEV (BKTRACE (BKREAD 512.) '(T NIL T T))]
+	 [BKFV (BKTRACE (BKREAD 512.) '(T NIL NIL T))]
+	 [> (PROG (X Y Z)
+		  (SETQ X (BKREAD))
+		  (COND [(ATOM (SETQ Y (SPDLRT LASTPOS)))
+			 (CHNM1 (COND [(SETQ Z (NEXTEV (SUB1 LASTPOS)))
+				       (SPDLRT Z)])
+				Y 
+				X)
+			 (RPLACD (STKPTR LASTPOS) X)]
+			[(AND [RPLACA BRKEXP X]
+			      [NOT (EQ (SETQ Z (BKREAD //BREAK1)) '//BREAK1)])
+			 (RPLACD BRKEXP (CONS Z (CDR BRKEXP)))])
+		  (FROM?= NIL))]
+	 [GO (COND [%%EVALFLAG] [(EVALP BRKEXP) (GO BRKER)])
+	     (LINES 0.)
+	     (%PRINFN !VALUE)
+	     (GO LEAVE)]
+	 [OK (COND [%%EVALFLAG] [(EVALP BRKEXP) (GO BRKER)]) (GO LEAVE)]
+	 [EVAL (COND [(EVALP BRKEXP) (GO BRKER)])
+	       (AND %%MSGFLAG [PROGN (LINES 0.) (%PRINFN !VALUE)])
+	       (SETQ %%EVALFLAG T)]
+	 [SSTEP (COND [(EVALP BRKEXP T) (GO BRKER)])
+	       (AND %%MSGFLAG [PROGN (LINES 0.) (%PRINFN !VALUE)])
+	       (SETQ %%EVALFLAG T)]
+	 [EDIT (PRINC '"= ")
+	       (COND [(& (PROG1 (CDR %%CMDL) (SETQ %%CMDL '(NIL))) T)
+		      (ERRSET (EDBRK) ERRORX)]
+		     [T (GO BRKER)])]
+	 [?= (?= (PROG1 (CDR %%CMDL) (SETQ %%CMDL '(NIL))))]
+	 [ARGS (MAPC (FUNCTION ARGPRINT) (ARGLIST BRKFN))]
+	 [& (OR [& (PROG1 (CDR %%CMDL) (SETQ %%CMDL '(NIL))) T] [GO BRKER])]
+	 [RETURN (COND [(EVALP (SETQ BRKEXP
+				     (PROG1 (BKREAD) (SETQ %%CMDL BRKEXP))))
+			(SETQ BRKEXP %%CMDL)
+			(GO BRKER)])
+		 (GO LEAVE)]
+	 [FROM?= (FROM?= (BKREAD))]
+	 [EX (COND [(OR [NULL (CDR %%CMDL)]
+			[& (PROG1 (CDR %%CMDL) (SETQ %%CMDL '(NIL))) NIL])
+		    (FROM?= NIL)]
+		   [T (GO BRKER)])]
+	 [USE (USE)]
+	 [TRACE (AND TRACE [OUTC (CDDAR /#%BKSAVE) NIL])
+		(SETQ BKPOS T)
+		(BKPOS /#%INDENT)
+		(PRINC '"Enter ")
+		(PRIN1 BRKFN)
+		(PRINC ':)
+		(SETQ /#%INDENT (*PLUS /#%INDENT 3.))]
+	 [UNTRACE (SETQ LASTPOS %%BKPOS)
+		  (SETQ BKPOS NIL)
+		  (FROM?= (LIST '%UNTRACE BRKFN BRKEXP))]
+	 [COND
+	  [(ASSOC (CAR %%CMDL) BREAKMACROS)
+	   (SETQ BRKCOMS
+	    (APPEND
+	     (PROG (TEMP)
+		   (RETURN (COND [(AND [CAR (SETQ TEMP
+						  (CDR (ASSOC (CAR %%CMDL)
+							      BREAKMACROS)))]
+				       [LITATOM (CAR TEMP)])
+				  (SUBST (CDR %%CMDL) (CAR TEMP) (CDR TEMP))]
+				 [T (SUBPAIR (CAR TEMP) (CDR %%CMDL) (CDR TEMP))
+				  ])))
+	     BRKCOMS))
+	   (GO BRKLP)]
+	  [(AND [LITATOM (CAR %%CMDL)] [EQ (CHRVAL (CAR %%CMDL)) 62.])
+	   (SETQ %%CMDL (AEXPLODE %%CMDL))
+	   (RPLACD (CDR %%CMDL) (CONS 32. (CDDR %%CMDL)))
+	   (COND [(CONSP (SETQ %%CMDL (ERRSET (READLIST %%CMDL) ERRORX)))
+		  (SETQ %%CMDL (CAR %%CMDL))
+		  (GO BKLP2)]
+		 [T (GO BRKER)])]
+	  [(ATOM (ERRSET (COND [%%MSGFLAG (%PRINFN (PROG1 (EVAL (CAR %%CMDL))
+							  (LINES 0.)))]
+			       [T (EVAL (CAR %%CMDL))])
+			 ERRORX))
+	   (GO BRKER)]])
+	(SETQ %%CMDL (CDR %%CMDL))
+	(GO BKLP2)
+  BRKER (SETQ BRKCOMS NIL)
+	(GO BRKLP)
+  LEAVE (SETQ LASTPOS %%BKPOS)
+	(COND [(ATOM BRKEXP)] [(GOFN (CAR BRKEXP)) (FROM?= BRKEXP)])
+  LEAV2 (*RSETERX 1.)
+	(RETURN !VALUE)))
+
+(DE EVALP (/#1 DOSTEP?)
+  ((LAMBDA (/#%BKSAVE) (*RSETERX 1.)) /#%BKSAVE)
+  (COND [(AND [CONSP /#1] [SETQ !VALUE (GOFN (CAR /#1))])]
+        [DOSTEP? (SETQ !VALUE (ERRSET (APPLY 'SSTEP (LIST /#1)) ERRORX))]
+	[T (SETQ !VALUE (ERRSET (EVAL /#1) ERRORX))])
+  (INC NIL NIL)
+  (OUTC NIL NIL)
+  (PROMPT 58.)
+  (COND [(EQ !VALUE 'THROW)
+	 (SETQ BRKEXP (LIST 'THROW (LIST 'QUOTE THROW) CATCH))
+	 (SETQ !VALUE 'THROW)
+	 NIL]
+	[(ATOM !VALUE) (PRINC '?) T]
+	[T (SETQ !VALUE (CAR !VALUE)) NIL]))
+
+(DE GOFN (FN)
+  (AND [EQ FN 'BRKAPPLY] [SETQ FN BRKFN])
+  (COND [(MEMQ FN '(GO RETURN ERR THROW))]
+	[(SETQ FN (GET FN 'ALIAS)) (MEMQ (CDR FN) '(GO RETURN ERR THROW))]))
+
+(DE PLEV (X) (PRINLEV X %LOOKDPTH))
+
+(DEFV %LOOKDPTH 6.)
+
+(DE FROM?= (X)
+  (*RSETERX (STKCOUNT '//BREAK1 (SPDLPT) LASTPOS))
+  (COND [X (SPREVAL LASTPOS X)] [T (SPREDO LASTPOS)]))
+
+(DE USE NIL
+  (PROG (%%X %%Y %%Z)
+	(SETQ %%X (BKREAD))
+	(COND [(EQ (BKREAD) 'FOR) (SETQ %%Y (BKREAD))]
+	      [(PRINC '?) (SETQ %%CMDL '(NIL)) (RETURN T)])
+	(COND [(ATOM (SETQ %%Z (SPDLRT LASTPOS)))
+	       (COND [(EQ %%Y %%Z)
+		      (RPLACD (STKPTR LASTPOS) %%X)
+		      (AND [EQ BRKEXP %%Z] [SETQ BRKEXP %%X])
+		      (COND [(SETQ %%Z (NEXTEV (SUB1 LASTPOS)))
+			     (SETQ %%Z (SPDLRT %%Z))]
+			    [T (RETURN T)])]
+		     [T (PRINC '?) (RETURN T)])])
+	(COND [(CHNM1 %%Z %%Y %%X)] [T (MSG 0. %%Y " not found in " %%Z)])))
+
+(DE ?= (/#COMS)
+  (PROG (/#COM)
+	(COND [(NULL /#COMS)
+	       (MAPC (FUNCTION ARGPRINT) (ARGLIST (STKNAME LASTPOS)))
+	       (RETURN T)])
+     LP (COND [(NUMBERP (SETQ /#COM (CAR /#COMS)))
+	       (ARGPRINT (CAR (NTH (ARGLIST (STKNAME LASTPOS)) /#COM)))]
+	      [T (ARGPRINT /#COM)])
+	(AND [SETQ /#COMS (CDR /#COMS)] [GO LP])))
+
+(DE & (COMS FLAG)
+  (PROG (POS COM FORFLAG)
+	(COND [(NULL COMS)
+	       (SETQ POS (COND [(NEXTEV (SUB1 %%BKPOS))] [%%BKPOS]))]
+	      [(MEMQ (CAR COMS) '(& F)) (SETQ POS LASTPOS) (GO NEXT)]
+	      [T (SETQ POS %%BKPOS)])
+     LP (COND [(NULL COMS)
+	       (SETQ LASTPOS POS)
+	       (AND FLAG [PRIN1 (STKNAME LASTPOS)])
+	       (RETURN T)]
+	      [(EQ (SETQ COM (CAR COMS)) '_) (SETQ FORFLAG T) (GO NEXT)])
+	(COND [(NULL (SETQ POS
+			   (COND [(NUMBERP COM) (STKNTH COM POS)]
+				 [(ATOM COM)
+				  (PROG1 (STKSRCH COM POS FORFLAG)
+					 (SETQ FORFLAG NIL))])))
+	       (MSG COM 1.)
+	       (PRINC '?)
+	       (RETURN NIL)])
+   NEXT (SETQ COMS (CDR COMS))
+	(GO LP)))
+
+(DE EDBRK NIL
+  (PROG (L POS EXPR)
+	(COND [(PATOM (SETQ L (SPDLRT (SETQ POS LASTPOS))))
+	       (COND [(AND [SETQ POS (NEXTEV (SUB1 POS))]
+			   [BKFIND (SETQ EXPR (SPDLRT POS))])
+		      (SETQ EXPR
+			    (EDITL (NCONS EXPR) (LIST 'F L 'UP) NIL NIL NIL))
+		      (EDITL EXPR NIL NIL NIL NIL)
+		      (RPLACD (STKPTR LASTPOS) (COND [EXPR (CAAR EXPR)]))]
+		     [T (PRINC '"not editable.") (RETURN NIL)])]
+	      [T (EDITE L NIL NIL)])
+	(COND [(EQ L BRKEXP) (SETQ BRKEXP (SPDLRT LASTPOS))])))
+
+(DE *RSETERX (N)
+  (PROG NIL
+	(COND [(*LESS N 1.) (RETURN NIL)])
+     LP (COND [(EQ N 1.)
+	       (ERRSET (PROGN (INC (CADAR /#%BKSAVE) NIL)
+			      (OUTC (CDDAR /#%BKSAVE) NIL))
+		       ERRORX)
+	       (PROMPT (CAAR /#%BKSAVE))
+	       (SETQ /#%BKSAVE (CDR /#%BKSAVE))
+	       (RETURN NIL)])
+	(SETQ /#%BKSAVE (CDR /#%BKSAVE))
+	(SETQ N (SUB1 N))
+	(GO LP)))
+
+(DE BKTRACE (/#M /#ACTION)
+  (PROG (/#SPD /#NEXT %ACTION /#NEXTEXPR)
+	(SETQ /#SPD (OR [PREVEV (ADD1 LASTPOS)] LASTPOS))
+	(SETQ %PREVFN% NIL)
+     L1 (COND [(LESSP (SETQ /#M (SUB1 /#M)) 0.) (SETQ %PREVFN% NIL) (RETURN T)])
+	(SETQ /#NEXT (FNDBRKPT (SETQ /#SPD (SUB1 /#SPD))))
+	(COND [(NULL /#NEXT) (SETQ %PREVFN% NIL) (RETURN T)])
+	(SETQ %ACTION (BKACT (SETQ /#NEXTEXPR (SPDLRT /#NEXT)) NIL))
+	(COND [(AND [CAR /#ACTION] [CAR %ACTION])
+	       (BKTRV /#SPD 
+		      /#NEXT 
+		      (AND [CADR /#ACTION] [CADR %ACTION])
+		      (AND [CADDR /#ACTION] [CADDR %ACTION])
+		      (AND [CADDDR /#ACTION] [CADDDR %ACTION]))]
+	      [(AND [CADR /#ACTION] [CADR %ACTION])
+	       (BKTR /#SPD /#NEXT (AND [CADDR /#ACTION] [CADDR %ACTION]))]
+	      [(AND [CADDR /#ACTION] [CADDR %ACTION])
+	       (SETQ %PREVFN% (PRINTLEV /#NEXTEXPR 3.))]
+	      [(AND [CADDDR /#ACTION] [CADDDR %ACTION] [CONSP /#NEXTEXPR])
+	       (PRINT (CAR /#NEXTEXPR))]
+	      [T (SETQ /#M (ADD1 /#M))])
+	(AND [NULL (BKACT /#NEXTEXPR T)]
+	     [NULL (CADR /#ACTION)]
+	     [SETQ /#M (SUB1 /#M)])
+	(SETQ /#SPD /#NEXT)
+	(GO L1)))
+
+(DE FNDBRKPT (%SPD)
+  (PROG (%OLDSPD L %FUNAME)
+	(COND [(NULL (NEXTEV %SPD)) (RETURN NIL)])
+	(SETQ L (SPDLRT (SETQ %SPD (ADD1 %SPD))))
+     L1 (COND [(NULL (SETQ %SPD (NEXTEV (SUB1 (SETQ %OLDSPD %SPD)))))
+	       (RETURN %OLDSPD)]
+	      [(ATOM (SETQ %FUNAME (SPDLRT %SPD))) (RETURN %SPD)])
+	(COND [(BKFIND %FUNAME) (SETQ L %FUNAME) (GO L1)])
+	(RETURN %SPD)))
+
+(DE BKFIND (X)
+  (PROG NIL
+     L1 (COND [(OR [EQ (CAR X) L] [AND [NOT (PATOM (CAR X))] [BKFIND (CAR X)]])
+	       (RETURN T)])
+	(COND [(NOT (PATOM (SETQ X (CDR X)))) (GO L1)])))
+
+(DE BKTR (%SPD %NEXT %ACT)
+  (PROG NIL
+     LP (SETQ %SPD (NEXTEV %SPD))
+	(AND [NULL %ACT] [EQ %SPD %NEXT] [RETURN NIL])
+	(SETQ %PREVFN% (PRINTLEV (SPDLRT %SPD) 3.))
+	(COND [(EQ %SPD %NEXT) (RETURN NIL)])
+	(SETQ %SPD (SUB1 %SPD))
+	(GO LP)))
+
+(DE BKTRV (%SPD %NEXT %ACT1 %ACT2 %ACT3)
+  (PROG (/#ACTION)
+	(SETQ %SPD (ADD1 %SPD))
+    LP1 (SETQ %SPD (SUB1 %SPD))
+	(COND [(NULL (SPDLFT %SPD)) (GO LP2)]
+	      [(EQ (SPDLFT %SPD) (UNBOUND))
+	       (TERPRI) (PRINC '"   ?? /.UNBOUND found on stack as variable ")
+	       (GO LP1)]
+	      [(LITATOM (SPDLFT %SPD)) (GO LP3)]
+	      [T (GO LP1)])
+    LP2	(SETQ /#ACTION (CDR (BKACT (SPDLRT %SPD) NIL)))
+	(COND [(OR [AND %ACT1 [CAR /#ACTION] [NEQ %SPD %NEXT]]
+		   [AND %ACT2 [CADR /#ACTION] [EQ %SPD %NEXT]])
+	       (SETQ %PREVFN% (PRINTLEV (SPDLRT %SPD) 3.))]
+	      [(AND %ACT3 [CADDR /#ACTION] [CONSP (SPDLRT %SPD)] [EQ %SPD %NEXT])
+	       (PRINT (CAR (SPDLRT %SPD)))])
+	(COND [(EQ %SPD %NEXT) (RETURN NIL)] [T (GO LP1)])
+    LP3 (TERPRI)
+	(PRINC '"   ")
+	(BKPRINVAL %SPD)
+	(GO LP1)))
+
+(DE BKPRINVAL (%SPD)
+  (PROG (NAM SPEC)
+	(PRINC (COND [(SETQ SPEC (SPDLFT %SPD))]
+		     [(SETQ NAM (ASSOC SPEC LAPLST)) (CDR NAM)]
+		     [T '?]))
+	(PRINC '" = ")
+	(PRINLEV (COND [(EQ (SETQ %SPD (EVALV  SPEC (ADD1 %SPD)))
+			    (UNBOUND))
+			'UNBOUND]
+		       [%SPD])
+		 3.)))
+
+(DE BKACT (/#NEXT /#FLAG)
+  (COND [(OR [PATOM /#NEXT]
+	     [NOT (LITATOM (CAR /#NEXT))]
+	     [NULL (SETQ /#NEXT (GET (CAR /#NEXT) 'ERXACTION))])
+	 '(T T T T)]
+	[(CONSP /#NEXT) /#NEXT]
+	[/#FLAG (PRINTC /#NEXT) NIL]
+	[T '(NIL T NIL NIL)]))
+
+(DE CHNMX (%IN)
+  (PROG NIL
+     LP (COND [(PATOM %IN) (RETURN %IN)]
+	      [(EQUAL (CAR %IN) %FROM) (RPLACA %IN %TO) (SETQ CHNGDFLG T)]
+	      [(CHNMX (CAR %IN))])
+	(COND [(AND [CDR %IN] [PATOM (CDR %IN)] [EQ %FROM (CDR %IN)])
+	       (RPLACD %IN %TO)
+	       (SETQ CHNGDFLG T)
+	       (RETURN %IN)])
+	(SETQ %IN (CDR %IN))
+	(GO LP)))
+
+(DE CHNM1 (%IN %FROM %TO)
+  (PROG (CHNGDFLG) (CHNMX %IN) (RETURN (AND CHNGDFLG %IN))))
+
+(DF BKREAD (X)
+  (COND [(AND %%CMDL [CDR %%CMDL])
+	 (PROG1 (CADR %%CMDL) (SETQ %%CMDL (CDR %%CMDL)))]
+	[X (CAR X)]))
+
+(DE BKPOS (COL)
+  (PROG (WHERE)
+	(SETQ COL (REMAINDER COL (*DIF (LINELENGTH NIL) 24.)))
+	(LINES 0.)
+	(SETQ WHERE 1.)
+     LP (COND [(GREATERP WHERE COL) (RETURN COL)]
+	      [(PRINC '"!  ") (SETQ WHERE (*PLUS WHERE 3.)) (GO LP)])))
+
+(DEFV BKPOS NIL)
+
+(DF %UNTRACE (%L)
+  (PROG (CH VAL GOFL)
+	(OR [SETQ GOFL (GOFN (CAR %L))]
+	    [SETQ VAL (ERRSET (EVAL (CADR %L)) ERRORX)])
+	(AND [NULL TRACE] [SETQ CH (OUTC NIL NIL)])
+	(BKPOS (SETQ /#%INDENT (*DIF /#%INDENT 3.)))
+	(PRIN1 (CAR %L))
+	(PRINC '" = ")
+	(COND [(ATOM VAL) (PRINC '?)] [T (%PRINFN (CAR VAL))])
+	(AND [NULL TRACE] [OUTC CH NIL])
+	(COND [GOFL (EVAL (CADR %L))]
+	      [(ATOM VAL) (ERR VAL)]
+	      [T (RETURN (CAR VAL))])))
+
+(DEFV TRACE NIL)
+
+(DE ARGLIST (/#FUNC)
+  (COND [[AND (SETQ /#FUNC (FUNDEF /#FUNC))
+	      (MEMQ (CAR /#FUNC) '(EXPR FEXPR MACRO))
+	      (CONSP (CDR (CONSP (CDR (CONSP /#FUNC)))))]
+	 (COND [(AND [SETQ /#FUNC (CADDR /#FUNC)] [ATOM /#FUNC])
+		(EVAL (LIST 'LXPD /#FUNC) (PREVEV (ADD1 LASTPOS)))]
+	       [/#FUNC])]
+	[T (MSG 0. "Arguments not found.") NIL]))
+
+(DE LXPD (NUMARGS)
+  (PROG (A)
+     LP (COND [(ZEROP NUMARGS) (RETURN A)]
+	      [(SETQ A (CONS (LIST 'ARG NUMARGS) A))
+	       (SETQ NUMARGS (SUB1 NUMARGS))
+	       (GO LP)])))
+
+(DE PREVEV (/#POS)
+  (PROG (/#TOP)
+	(SETQ /#TOP (SPDLPT))
+     LP (COND [(GREATERP /#POS /#TOP) (RETURN NIL)]
+	      [(SPDLFT /#POS) (SETQ /#POS (ADD1 /#POS)) (GO LP)]
+	      [(RETURN /#POS)])))
+
+(DE STKNAME (/#POS)
+  (COND [(NULL /#POS) NIL]
+	[(SPDLFT /#POS) NIL]
+	[(ATOM (SETQ /#POS (SPDLRT /#POS))) /#POS]
+	[(CAR /#POS)]))
+
+(DE STKNTH (/#N /#POS)
+  (PROG (/#FLAG)
+	(COND [(MINUSP /#N) (SETQ /#N (MINUS /#N)) (SETQ /#FLAG T)])
+     LP (COND [(OR [NULL /#POS] [ZEROP /#N]) (RETURN /#POS)]
+	      [/#FLAG (SETQ /#POS (NEXTEV (SUB1 /#POS)))]
+	      [(SETQ /#POS (PREVEV (ADD1 /#POS)))])
+	(SETQ /#N (SUB1 /#N))
+	(GO LP)))
+
+(DE STKSRCH (/#NAME /#POS /#FLAG)
+  (PROG NIL
+	(COND [(NOT (NUMBERP /#POS)) (RETURN /#POS)])
+     LP (COND [/#FLAG (SETQ /#POS (PREVEV (ADD1 /#POS)))]
+	      [(SETQ /#POS (NEXTEV (SUB1 /#POS)))])
+	(COND [(OR [NULL /#POS] [EQ (STKNAME /#POS) /#NAME]) (RETURN /#POS)])
+	(GO LP)))
+
+(DE STKCOUNT (/#NAME /#P /#PEND)
+  (PROG (/#C)
+	(SETQ /#C 0.)
+     LP (COND [(OR [NULL /#P]
+		   [NULL (SETQ /#P (NEXTEV (SUB1 /#P)))]
+		   [GREATERP /#PEND /#P])
+	       (RETURN /#C)]
+	      [(EQ /#NAME (STKNAME /#P)) (SETQ /#C (ADD1 /#C))])
+	(GO LP)))
+
+(DE ARGPRINT (X)
+  (COND
+   [X (COND [BKPOS (BKPOS /#%INDENT)] [T (LINES 0.)])
+      (PRINC '"   ")
+      (PRINLEV X 1.)
+      (PRINC '" = ")
+      (ERRSET (%PRINFN
+	       (COND [(EQ (SETQ X
+				(COND [(ATOM X)
+				       (EVALV X (PREVEV (ADD1 LASTPOS)))]
+				      [(EVAL X (PREVEV (ADD1 LASTPOS)))]))
+			  (UNBOUND))
+		      'UNBOUND]
+		     [X]))
+	      ERRORX)]))
+
+
+
+(DE HOOK1 (%H%EXP)
+ {;; %HOOKSTACK is a list of MACROEXPANSION forms.  If this is part of the
+     expansion of the current macro we suppress it, unless it is part of the
+     user's original form.  Recall that CADDR is the original form and CADR the
+     expansion }
+ (COND [(OR [NULL %HOOKSTACK]
+	    [INP %H%EXP (CADDR (CAR %HOOKSTACK))]
+	    [NOT (INP %H%EXP (CADR (CAR %HOOKSTACK)))])
+	{;; either no current macro or it is in user's part or is not in
+	    expansion }
+	{;; now if the new expression is a macroexpansion, put it in stack, and
+	    print only the original part }
+	(COND [(EQ 'MACROEXPANSION (CAR (CONSP %H%EXP)))
+	       (SETQ %HOOKSTACK (CONS %H%EXP %HOOKSTACK))
+	       (SETQ %H%EXP (CADDR %H%EXP))])
+	(%BKPRINT %H%EXP)
+	(TERPRI)
+	(PROG (%H%OLDPROMPT %H%COMMAND)
+	      (SETQ %H%OLDPROMPT (PROMPT (CHRVAL '>)))
+	 LOOP (PRINC 'S)
+	      (SETQ %H%COMMAND (LINEREAD T))
+	      (COND [(MEMQ (CAR %H%COMMAND) '(NIL S X G B)) (GO DONE)])
+	      (PRINT (CAR (ERRSET (EVAL (CAR %H%COMMAND)))))
+	      (TERPRI)
+	      (GO LOOP)
+	 DONE (PROMPT %H%OLDPROMPT)
+	      (RETURN (SELECTQ [CAR %H%COMMAND]
+			       [(NIL S) 0]
+			       [X 1]
+			       [G 2]
+			       [B 3]
+			       NIL)))]
+       [T 0]))
+
+(DE HOOK2 (VALUE EXP)
+ {;; We suppress printing macro stuff just as in HOOK2.  If the current
+     expression is somewhere back on the stack, somebody must have done a
+     non-local transfer, so we prune the stack }
+ (WITH (TAIL)
+       (COND [(AND [EQ 'MACROEXPANSION (CAR (CONSP EXP))]
+		   [SETQ TAIL (MEMQ EXP %HOOKSTACK)])
+	      (SETQ %HOOKSTACK (CDR TAIL))]))
+ (COND [(OR [NULL %HOOKSTACK]
+	    [INP EXP (CADDR (CAR %HOOKSTACK))]
+	    [NOT (INP EXP (CADR (CAR %HOOKSTACK)))])
+	{;; either no current macro or it is in user's part or is not in
+	    expansion }
+	{;; if this is a macroexpansion, prune the stack since we are now out of
+	    it }
+	(COND [(EQ 'MACROEXPANSION (CAR (CONSP EXP))) (SETQ EXP (CADDR EXP))])
+	(%BKPRINT EXP)
+	(PRINC " ==> ")
+	(PRINLEV VALUE 3)
+	(TERPRI)]))
+
+
+(DE RETFROM (FUN VAL)
+  (COND [(SETQ FUN (STKSRCH FUN (SPDLPT) NIL)) (OUTVAL FUN VAL)]
+	[T (ERROR (LIST FUN '"NO EVAL BLIP - RETFROM"))]))
+
+(DEFV BREAKMACROS ((-> X (> . X)) (F X (& . X)) (FIX X (EDIT . X)
+  (FROM?= NIL))))
+
+(DEFV %PRINFN PLEV)
+
+(DEFV /#%BKSAVE NIL)
+
+(DEFV USERERRORX NIL)
+
+(DEFPROP ERRORX (NIL NIL NIL NIL) ERXACTION)
+
+(DEFPROP BREAK1 (NIL NIL NIL NIL) ERXACTION)
+
+(DEFPROP //BREAK1 **BREAK** ERXACTION)
+
+(DEFPROP BRKAPPLY (NIL NIL NIL NIL) ERXACTION)
+
+  

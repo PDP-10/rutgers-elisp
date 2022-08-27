@@ -1,0 +1,211 @@
+***** CHANGE #1; page 1, line 1; page 1, line 1
+ ---------------------------------
+
+***** CHANGE #2; page 1, line 3466; page 1, line 3466
+will set the current input channel to SPECIALCHAN, and leave it
+there during execution of (GET-INPUT).  When (GET-INPUT) exits,
+even if by ERROR, THROW, etc., the input channel that was
+in effect before the WITHIN will be restored.  WITHIN is in
+fact like a PROGN, except that the input channel is rebound
+during its execution.  In addition, you may put a T after the
+channel.  This causes the channel to be closed when the
+WITHIN exits.  E.g.
+@begin(display)
+(WITHIN (OPENIN "SUBFILE") T (PROCESSFILE))
+ ---------------------------------
+will set the current input channel to SPECIALCHAN, and leave it
+there during execution of (GET-INPUT).  When (GET-INPUT) exits,
+even if by ERROR, THROW, etc., the input channel that was
+in effect before the WITHIN will be restored.  WITHIN is in
+fact like a PROGN, except that the input channel is rebound
+during its execution.  In addition, you may put a T before the
+channel.  This causes the channel to be closed when the
+WITHIN exits.  E.g.
+@begin(display)
+(WITHIN T (OPENIN "SUBFILE") (PROCESSFILE))
+
+***** CHANGE #3; page 1, line 3508; page 1, line 3508
+(OPENIN file1 file2 file3 ...) --> channel - open a file or
+series of files.
+
+(SELECTIN channel closeprevious?) - select current input channel
+
+(WITHIN channel [T] forms) - execute forms, like PROGN, with input
+ ---------------------------------
+(OPENIN file1 file2 file3 ...) --> channel - open a file or
+series of files.
+
+(SELECTIN channel closeprevious?) - select current input channel
+
+(WITHIN [T] channel forms) - execute forms, like PROGN, with input
+
+***** CHANGE #4; page 1, line 3515; page 1, line 3515
+
+(OPENOUT file) --> channel
+
+(SELECTOUT channel closeprevious?)
+
+(WITHOUT channel [T] forms) - execute forms, like PROGN, with output
+ ---------------------------------
+
+(OPENOUT file) --> channel
+
+(SELECTOUT channel closeprevious?)
+
+(WITHOUT [T] channel forms) - execute forms, like PROGN, with output
+
+***** CHANGE #6; page 2, line 3602; page 2, line 3605
+This is used to reposition a random access file.  It positions
+the file so that the next TYI or TYO will read or write the
+byte number specified.  0 is the first byte.  -1 may be used
+for the last byte in the file.
+@begin(elisp)
+@f{SETRAN seed) [SUBR] --> NIL}
+ ---------------------------------
+This is used to reposition a random access file.  It positions
+the file so that the next TYI or TYO will read or write the
+byte number specified.  0 is the first byte.  -1 may be used
+for the last byte in the file.
+@begin(elisp)
+@f{(SETRAN seed) [SUBR] --> NIL}
+
+***** CHANGE #7; page 2, line 3810; page 2, line 3813
+@f{(STORE (locative) value) [MACRO] --> value}
+This is vaguely equivalent to SETQ, but for putting values into
+data structures.  At the moment it is implemented only for
+arrays @elisp{and structures}.  LOCATIVE is an expression that
+would normally be used to locate that value.  At the moment
+all that is allowed is (array-name --subscripts--) @elisp{and
+ ---------------------------------
+@f{(STORE (locative) value) [MACRO] --> value}
+This is vaguely equivalent to SETQ, but for putting values into
+data structures.  At the moment it is implemented only for
+arrays @elisp{and structures}.  LOCATIVE is an expression that
+would normally be used to locate that value.  At the moment
+all that is allowed is (array-name --subscripts--) @elisp{or
+
+***** CHANGE #8; page 2, line 3879; page 2, line 3882
+@begin(elisp)
+A SUBR will have as the
+value of its name something of the form (SUBR <address> n), where
+n is the number of arguments.  See the section on basic syntax.
+@end(elisp)
+@f{(SUBSET fn l)} [EXPR] --> new list}
+ ---------------------------------
+@begin(elisp)
+A SUBR will have as the
+value of its name something of the form (SUBR <address> n), where
+n is the number of arguments.  See the section on basic syntax.
+@end(elisp)
+@f{(SUBSET fn l) [EXPR] --> new list}
+
+***** CHANGE #9; page 2, line 4092; page 2, line 4095
+Identical to TYO, except if there is no room for CHAR on the current
+line a TAB to position POS on the next line is performed before printing
+CHAR.  POS is optional, with a value of 1 assumed if omitted. Tabs are
+the only character handled specially, all others are assumed to take one
+space.
+@f{(TYPE file) --> nothing}
+ ---------------------------------
+Identical to TYO, except if there is no room for CHAR on the current
+line a TAB to position POS on the next line is performed before printing
+CHAR.  POS is optional, with a value of 1 assumed if omitted. Tabs are
+the only character handled specially, all others are assumed to take one
+space.
+@f{(TYPE file) [FSUBR] --> nothing}
+
+***** CHANGE #10; page 2, line 4125; page 2, line 4128
+That is, it is equivalent to (CURPOS (CURRENTOUT)).
+@end(elisp)
+@f{(UNBOUND) [EXPR] --> un-interned atom representing no binding}
+Every atom has a place for storing a value.  If the atom doesn't
+have a value (i.e. it is "unbound" -- see BOUNDP) what really happens
+is that a special object is strored in this value cell.  That special
+ ---------------------------------
+That is, it is equivalent to (CURPOS (CURRENTOUT)).
+@end(elisp)
+@f{(UNBOUND) [EXPR] --> un-interned atom representing no binding}
+Every atom has a place for storing a value.  If the atom doesn't
+have a value (i.e. it is "unbound" -- see BOUNDP) what really happens
+is that a special object is stored in this value cell.  That special
+
+***** CHANGE #11; page 2, line 4159; page 2, line 4162
+@end(elisp)
+@begin(rutlisp)
+(UNMACEXPAND (GET 'FOO 'EXPR))
+@end(rutlisp)
+@end(display)
+@f{(UNSAVE function} [FEXPR] --> function or NIL if fails}
+ ---------------------------------
+@end(elisp)
+@begin(rutlisp)
+(UNMACEXPAND (GET 'FOO 'EXPR))
+@end(rutlisp)
+@end(display)
+@f{(UNSAVE function) [FEXPR] --> function or NIL if fails}
+
+***** CHANGE #12; page 2, line 4165; page 2, line 4168
+Restores an old definition of FUNCTION from its SAVE property.
+@begin(elisp)
+@f{(UNTIL exp1 exp2 ... expn) [MACRO] --> NIL}
+UNTIL evaluates exp2 through expn while exp1 evaluates to NIL.
+@end(elisp)
+@f{(UNTRACE functions} [FEXPR]}
+ ---------------------------------
+Restores an old definition of FUNCTION from its SAVE property.
+@begin(elisp)
+@f{(UNTIL exp1 exp2 ... expn) [MACRO] --> NIL}
+UNTIL evaluates exp2 through expn while exp1 evaluates to NIL.
+@end(elisp)
+@f{(UNTRACE functions) [FEXPR]}
+
+***** CHANGE #13; page 2, line 4195; page 2, line 4198
+VAR or a list of the form (VAR VAL).  Each VAR will be printed
+as a DV expression, with a value of VAL if given, or the current
+value of the variable if only the variable name was given (unbound
+variables are printed with a value of NIL).
+@begin(elisp)
+ ---------------------------------
+VAR or a list of the form (VAR VAL).  Each VAR will be printed
+as a DV expression, with a value of VAL if given, or the current
+value of the variable if only the variable name was given (unbound
+variables are printed with a value of NIL).
+@begin(elisp)
+@f{(VECTORBLT n foo i bar j) [SUBR] --> NIL}
+Block move of elements in a vector.  N elements are moved from FOO to
+BAR, starting at I in FOO and J in BAR.  Extremely fast because it
+uses the XBLT machine instruction.  Destructively alters BAR.
+@end(elisp)
+@begin(elisp)
+
+***** CHANGE #14; page 2, line 4254; page 2, line 4251
+copies a file
+@begin(display)
+(errset
+     (within t (openin "infile.lsp")
+	  (without t (openout "outfile.lsp")
+		     (rptq 10000000 (tyo (tyi))))))
+ ---------------------------------
+copies a file
+@begin(display)
+(errset
+     (within t (openin "infile.lsp")
+	  (without t (openout "outfile.lsp")
+		     (while t (tyo (tyi))))))
+
+***** CHANGE #15; page 2, line 4267; page 2, line 4264
+and output are restored to their previous channels.  Because
+the WITHIN and WITHOUT have T specified, the file mentioned
+above are closed.
+@end(elisp)
+@begin(elisp)
+@f{(WITHOUT channel exp1 exp2 ... expn) [FSUBR] --> expn}
+ ---------------------------------
+and output are restored to their previous channels.  Because
+the WITHIN and WITHOUT have T specified, the file mentioned
+above are closed.
+@end(elisp)
+@begin(elisp)
+@f{(WITHOUT [T] channel exp1 exp2 ... expn) [FSUBR] --> expn}
+
+  

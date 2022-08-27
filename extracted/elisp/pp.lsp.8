@@ -1,0 +1,756 @@
+
+
+
+
+(SPECIAL PP PRETTYPROPS NOPRETTYPROPS PRETTYFLG COMMENTFLG 
+	 COMMENTSTR PPMAXLEN %%LL %%BR %%CC %%T %%LP %%RP LASTWORD 
+	 EDITV INTERNSTR %%PACO %%PAFN %%PAFS)
+
+{;; Top level functions:}
+
+(DF PPL (%L)
+    {;; Replaces GRINL. Outputs binding for function list unless already 
+	dumped or atom was ALLFNS or ALLVALS.}
+    (PROG (LASTWORD EDITV)		{; Don't change LASTWORD or EDITV}
+     (MAPC (FUNCTION 
+	    (LAMBDA (%A)
+	     (COND [(AND [LITATOM %A] [SETQ %L (EVAL %A)])
+		    (APPLY 'PP %L)])))
+	   %L)
+     (RETURN (IASCII 0.))))
+
+(DF PPL; (%L)
+    (PROG (COMMENTFLG) (SETQ COMMENTFLG T) (RETURN (APPLY 'PPL %L))))
+
+(DF PP (%L)
+    {;; Replaces GRINDEF. Evaluates PPCOM commands - SPRINTs other 
+	lists (except LAP code which is printed as such). Notifies user 
+	of any atoms with no props on PRETTYPROPS.}
+    (PROG (%FLAG %D %CH)
+     (SETQ %CH (OUTCH))
+     (MAPC (FUNCTION 
+	    (LAMBDA (%A)
+	     (COND [(CONSP %A)
+		    (COND [(AND [CONSP (CAR %A)]
+				[EQ (CAAR %A) 'LAP])
+			   (TERPRI)
+			   (PRIN1 (CAR %A))
+			   (MAPC (FUNCTION 
+				  (LAMBDA (X)
+				   (TAB (COND
+					 [(AND
+					   X
+					   [ATOM X])
+					   2.]
+					 [T 9.]))
+				   (SETQ %A (PRIN1 X))))
+				 (CDR %A))
+			   (COND [%A (TAB 9.) (PRIN1 NIL)])
+			   (TERPRI)]
+			  [(AND [LITATOM (CAR %A)]
+				[GET (CAR %A) 'PPCOM])
+			   (EVAL %A)]
+			  [T (TERPRI) (SPRINT %A 1.) (TERPRI)])]
+		   [(LITATOM %A)
+		    (COND [(GETL %A '(BROKEN-IN NAMESCHANGED))
+			   (UNBREAK! %A)
+			   (SETQ %L NIL)]
+			  [T (SETQ %L (GET %A 'TRACE))])
+		    (SETQ %FLAG NIL)
+		    (MAPC (FUNCTION 
+			   (LAMBDA (%P)
+			    (PROG (%SP)
+			     (COND [(CONSP %P)
+				    (SETQ %SP (CDR %P))
+				    (SETQ %P (CAR %P))])
+			     (COND [(MEMB %P
+					  '(EXPR FEXPR MACRO))
+				    (COND [(AND
+					    [SETQ
+					     %D
+					     (FUNDEF %A)]
+				            [EQ (CAR %D) %P]
+					    [OR
+					     [NULL %L]
+					     [AND (SETQ %D (FUNDEF (CDR %L)))
+						  (COND ((EQ %P 'MACRO)
+						         (EQ (CAR %D) 'FEXPR))
+							(T (EQ (CAR %D) %P)))]])
+					    (AND
+					     [NULL %CH]
+					     [SETQ LASTWORD %A])]
+					  [T
+					   (RETURN NIL)])]
+				   [(EQ %P 'VALUE)
+				    (COND [[BOUNDP %A]
+					   [SETQ %D (EVAL %A)]
+					   (AND
+					    [NULL %CH]
+					    [SETQ EDITV %A])
+					    (UNMACEXPAND
+					     (EVAL %A))
+					    (GO SKIP)]
+					  [T
+					   (RETURN NIL)])]
+				   [T (SETQ %D
+					    (GETL
+					     %A
+					     (SETQ
+					      %P
+					      (LIST %P))))
+				      (SETQ %P
+					    (PROG1
+					     (CAR %P)
+					     (FREE %P)))
+				      (COND [(NULL %D)
+					      (RETURN NIL)]
+					    [T
+					     (SETQ
+					      %D
+					      (CADR %D))])])
+			     (UNMACEXPAND %D)
+					{; Get rid of any macro 
+					   expansions}
+			     SKIP
+			     (SETQ %FLAG T)
+			     (TERPRI)
+			     (COND [%SP (%SP %A %D %P)]
+				   [T (SPRINT (LIST 'DEFPROP %A %D %P)
+					      1.)])
+			     (TERPRI))))
+			  PRETTYPROPS)
+		    (COND [(AND PP %CH %FLAG)
+			   (OUTC NIL NIL)
+			   (MSG %A 1.)
+			   (OUTC %CH NIL)]
+			  [(AND [NULL %FLAG] NOPRETTYPROPS)
+			   (TTYMSG -1. %A " has no properties on PRETT
+YPROPS." 
+				   T)])]
+		   [T (MSG T %A T)])))
+	   (OR %L [LIST LASTWORD]))
+     (RETURN (IASCII 0.))))
+
+
+(DV PP NIL)
+
+(DV NOPRETTYPROPS T)
+
+(DF PP; (%L)
+  (PROG (COMMENTFLG) (SETQ COMMENTFLG T) (RETURN (APPLY 'PP %L))))
+
+{;; PPCOM command functions:}
+
+(DE *PG* NIL (TYO 12.) NIL)
+
+(DF F: (L)
+    (PROG (PRETTYPROPS)
+     (SETQ PRETTYPROPS
+	   '((EXPR . PP-FUNCTION)
+	    (FEXPR . PP-FUNCTION)
+	    (MACRO . PP-FUNCTION)))
+     (RETURN (AND L [APPLY 'PP L]))))
+
+(DF P: (L)
+  (PROG (PRETTYPROPS)
+	(SETQ PRETTYPROPS (CAR L))
+	(RETURN (AND [CDR L] [APPLY 'PP (CDR L)]))))
+
+(DF V: (L)
+  (MAPC (FUNCTION
+	 (LAMBDA (X)
+	  (PROG (V)
+		(COND [(LITATOM X)
+		       (COND [(BOUNDP X) (SETQ V (EVAL X))]]
+		      [(AND [CONSP X] [LITATOM (CAR X)])
+		       (SETQ V (CADR X))
+		       (SETQ X (CAR X))]
+		      [T (RETURN (MSG T X T))])
+		(UNMACEXPAND  V)  {; Just in case the value of this
+					  variable is ever EVALed}
+		(TERPRI)
+		(PP-VALUE X V 'VALUE)
+		(TERPRI)
+		(AND PP [OUTCH] [TTYMSG X 1.]))))
+	L)
+  (IASCII 0.))
+
+(DF ST: (L)
+  (MAPC (FUNCTION
+	 (LAMBDA (X)
+	  (PROG (V)
+		(COND [(OR (NOT (LITATOM X)) (NOT (GET X 'STRUCTURE-FIELDS)))
+		       (RETURN NIL)])
+		(TERPRI)
+		(PP-STRUCT X (GET X 'STRUCTURE-FIELDS) 'STRUCTURE-FIELDS)
+		(TERPRI)
+		(AND PP [OUTCH] [TTYMSG X 1.]))))
+	L)
+  (IASCII 0.))
+
+(DF MBD: (L)
+  (COND [(CDR L)
+	 (MSG T "(" (CAR L))
+	 (APPLY 'PP (CDR L))
+	 (MSG ")" T)
+	 (IASCII 0.)]))
+
+(DF FORMS: (L)
+  (MAPC (FUNCTION (LAMBDA (X) (TERPRI) (SPRINT X 1.) (TERPRI))) L)
+  (IASCII 0.))
+
+(ALIAS 'E: (FUNDEF 'PROGN))
+
+(DEFLIST (*PG* F: P: V: MBD: FORMS: E:) T PPCOM)
+
+{;; SPRINT and friends:}
+
+(DE SPRINT (%E %C)
+    {;; SPRINT now does a quick dump if PRETTYFLG=NIL}
+    (SETQ %%LL (LINELENGTH NIL))	{; Just retrieve this once!}
+    (TAB (OR %C 1.))
+    (COND [(OR [NULL PRETTYFLG] [VATOM %E]) (PRIN1 %E)]
+	  [T (%SPRINT %E NIL)])
+    NIL)
+
+(DE %SPRINT (%E %BR)
+    {;; Prettyprints the (non-atomic) structure %E using parentheses if 
+	%BR=NIL and brackets if %BR=T. Checks for printmacros and lists 
+	of atoms (printed as blocks).}
+    (PROG (%C %CE %%LP %%RP)
+     (COND [(VECTORP %E) (RETURN (%SPRINTV %E))]
+	   [%BR (SETQ %%LP 91.) (SETQ %BR (SETQ %%RP 93.))]
+	   [T (SETQ %%LP 40.) (SETQ %BR (SETQ %%RP 41.))])
+     START
+     (SETQ %C (ADD1 (CHRPOS)))
+     (COND [(CONSP (SETQ %CE (CAR %E)))
+	    (TYO %%LP)
+	    (%SPRINT %CE NIL)
+	    (SETQ %%BR NIL)
+	    (GO REST)]
+	   [(AND [LITATOM %CE] [SETQ %%T (GET %CE 'PRINTMACRO)])
+	    (COND [(STRINGP %%T)
+		   (AND [OR [PATOM (CDR %E)] [CDDR %E]] [GO OK])
+		   (PRINC %%T)
+		   (COND [(VATOM (SETQ %E (CADR %E)))
+			  (RETURN (PRIN1 %E))]
+			 [T (GO START)])]
+		  [(EQ %%T 'BRACKETS) (SETQ %%BR T) (GO OK1)]
+		  [(NEQ (%%T %E) 'SPRINT) (RETURN NIL)])])
+     OK
+     (SETQ %%BR NIL)
+     OK1
+     (TYO %%LP)
+     (PRIN1 %CE)
+     REST
+     (COND [(PATOM (SETQ %E (CDR %E))) (PP-LSEG %E %C %C %%BR)]
+	   [(MINUSP (%PPSIZE %CE (*MIN (*DIF %%LL %C) 50.) T))
+	    (PP-LSEG %E %C %C %%BR)]
+	   [(NOT (MINUSP (%PPSIZE %E
+				  (*MIN (SETQ %%CC (CHRCT))
+					PPMAXLEN)
+				  NIL)))
+	    (PP-LSEG %E NIL NIL %%BR)]
+	   [(AND [VATOM %CE]
+		 [PROG (%E1)
+		  (SETQ %E1 %E)
+		  A
+		  (COND [(NOT (VATOM (CAR %E1))) (RETURN NIL)]
+			[(PATOM (SETQ %E1 (CDR %E1)))
+			 (RETURN T)]
+			[T (GO A)])])
+	    (PP-LSEG %E NIL (ADD1 (CHRPOS)) %%BR)]
+	   [(OR [*GREAT (SETQ %%T (*DIF (CHRPOS) %C)) 12.]
+		[NOT (VATOM %CE)]
+		[AND [*GREAT %%T 1.]
+		     [*GREAT (*TIMES 6. (%DEPTH %E)) %%CC]])
+	    (PP-LSEG %E %C %C %%BR)]
+	   [T (TYO 32.) (PP-LSEG %E (SETQ %CE (CHRPOS)) %CE %%BR)])
+     (TYOA %BR %C)))
+
+(DE %SPRINTV (%E)
+    {;; Prettyprints the vector structure %E using. Checks for and lists 
+	of atoms (printed as blocks).}
+    (PROG (%C %CE %N)
+     START
+     (TYO 35.)	{; #}
+     (TYO 40.)  {; (}
+     (SETQ %C (CHRPOS))
+     (COND [(EQ (VECTORLENGTH %E) 0) (RETURN (TYO 41.))]
+	   [(VATOM (SETQ %CE (GETVECTOR %E 0)))
+	    (PRIN1 %CE)]
+	   [T (%SPRINT %CE NIL)])
+     (SETQ %N 2)
+     (COND [(MINUSP (%PPSIZE %CE (*MIN (*DIF %%LL %C) 50.) T))
+	    (PP-VSEG %E 1 %C %C)]
+	   [(NOT (MINUSP (%PPSIZEV %E 1
+				  (*MIN (SETQ %%CC (CHRCT))
+					PPMAXLEN)
+				  NIL)))
+	    (PP-VSEG %E 1 NIL NIL)]
+	   [(AND [VATOM %CE]
+		 [PROG (%N)
+		  (SETQ %N 0)
+		  A
+		  (SETQ %N (ADD1 %N))
+		  (COND [(EQ %N (VECTORLENGTH %E)) (RETURN T)]
+			[(VATOM (GETVECTOR %E %N)) (GO A)]
+			[T (RETURN NIL)])])
+	    (PP-VSEG %E 1 NIL (ADD1 (CHRPOS)))]
+	   [(OR [*GREAT (SETQ %%T (*DIF (CHRPOS) %C)) 12.]
+		[NOT (VATOM %CE)]
+		[AND [*GREAT %%T 1.]
+		     [*GREAT (*TIMES 6. (%DEPTH %E)) %%CC]])
+	    (PP-VSEG %E 1 %C %C)]
+	   [T (TYO 32.) (PP-VSEG %E 1 (SETQ %CE (CHRPOS)) %CE)])
+     (TYOA 41. %C)))
+
+(DV PPMAXLEN 65.)
+
+(DE VATOM (%S) (NOT (OR (CONSP %S) (VECTORP %S))))
+
+(DE %DEPTH (%S)
+    {;; Returns the maximum nesting depth of the list structure %S}
+    (PROG (%N)
+     (COND ((VECTORP %S) (RETURN (%DEPTHV %S))))
+     (SETQ %N 1.)
+     LOOP
+     (AND [CONSP (CAR %S)]
+	  [SETQ %N (*MAX %N (ADD1 (%DEPTH (CAR %S))))])
+     (COND [(CONSP (SETQ %S (CDR %S))) (GO LOOP)] [T (RETURN %N)])))
+
+(DE %DEPTHV (%S)
+     (PROG (%N %DEP)
+	(SETQ %N 0)
+	(SETQ %DEP 1)
+LOOP	(COND ((EQ %N (VECTORLENGTH %S)) (RETURN %DEP)))
+	(SETQ %DEP (*MAX %DEP (ADD1 (%DEPTH (GETVECTOR %S %N)))))
+	(SETQ %N (ADD1 %N))
+	(GO LOOP)))
+
+(DE %PPSIZE (%E %N %F)
+    {;; Checks to see if %E can be SPRINTed in %N spaces. Returns 
+	negative number if it can't, and number of spaces left over if 
+	it can. %F is T if %E is a real expression (a check is then 
+	made for a printmacro string). If %F is NIL %E is a segment (no 
+	top-level check for printmacro).}
+    (PROG NIL
+     (COND ((VECTORP %E) (RETURN (%PPSIZEV %E 0 %N %F))))
+     START
+     (COND [(VATOM %E) (RETURN (*DIF %N (FLATSIZE %E)))]
+	   [(AND %F
+		 [LITATOM (CAR %E)]
+		 [SETQ %F (GET (CAR %E) 'PRINTMACRO)])
+	    (COND [(AND [STRINGP %F]
+			[CONSP (CDR %E)]
+			[NULL (CDDR %E)])
+		   (SETQ %N (*DIF %N (FLATSIZEC %F)))
+		   (SETQ %E (CADR %E))
+		   (GO START)]
+		  [(SETQ %F (GET (CAR %E) 'COMMENT))
+		   (AND [NULL (OUTCH)]
+			[NULL COMMENTFLG]
+			[RETURN (*DIF %N 9.)])
+		   (AND [NUMBERP %F] [RETURN -1.])])])
+     (SETQ %N (SUB1 (*DIF %N (LENGTH %E))))
+     LOOP
+     (COND [(MINUSP %N) (RETURN %N)]
+	   [T (SETQ %N (%PPSIZE (CAR %E) %N T))])
+     (COND [(CONSP (SETQ %E (CDR %E))) (GO LOOP)]
+	   [(NULL %E) (RETURN %N)]
+	   [T (RETURN (DIFFERENCE %N (FLATSIZE %E) 3.))])))
+
+(DE %PPSIZEV (%E %OFF %N %F)
+    {;; For vectors only}
+    {;; Checks to see if %E, starting at %OFF can be SPRINTed in %N spaces.
+	Returns negative number if it can't, and number of spaces left over if 
+	it can. %F is T if %E is a real expression (a check is then 
+	made for a printmacro string). If %F is NIL %E is a segment (no 
+	top-level check for printmacro).}
+    (PROG NIL
+     (SETQ %N (PLUS (*DIF %N (VECTORLENGTH %E)) %OFF -2))
+     LOOP
+     (COND [(MINUSP %N) (RETURN %N)]
+	   [(EQ %OFF (VECTORLENGTH %E)) (RETURN %N)]
+	   [T (SETQ %N (%PPSIZE (GETVECTOR %E %OFF) %N T))
+	      (SETQ %OFF (ADD1 %OFF))
+	      (GO LOOP)])))
+ 
+(DE PP-LSEG (%L %C1 %C2 %BR)
+    {;; Prints the list-segment %L. %C1 gives column to print lists in. 
+	%C2 gives column to print atoms in (if %C2 is NIL atoms are 
+	automatically outdented). If %C1 is NIL the elements are 
+	printed as a block (%C2 then gives the column to resume 
+	printing if an element won't fit on the line). %BR is the 
+	bracket flag to pass to %SPRINT.}
+    (PROG NIL
+     LOOP
+     (AND [VATOM %L] [GO DONE])
+     LOOP1
+     (COND [(NULL %C1)
+	    (COND [(AND %C2
+			[MINUSP (%PPSIZE (CAR %L)
+					 (SUB1 (CHRCT))
+					 T)])
+		   (TAB %C2)]
+		  [T (TYO 32.)])
+	    (COND [(VATOM (CAR %L)) (PRIN1 (CAR %L)) (GO NEXT)])]
+	   [(VATOM (CAR %L))
+	    (TAB (OR %C2
+		     [*MAX 2.
+			   (SUB1 (*DIF %C1 (FLATSIZE (CAR %L))))]))
+	    (PRIN1 (CAR %L))
+	    (COND [(CONSP (SETQ %L (CDR %L)))
+		   (TYO 32.)
+		   (GO LOOP1)])
+	    (GO DONE)]
+	   [(AND [LITATOM (CAAR %L)]
+		 [NUMBERP (GET (CAAR %L) 'COMMENT)])
+	    (TYO 32.)]
+	   [T (TAB %C1)])
+     (%SPRINT (CAR %L) %BR)
+     NEXT
+     (SETQ %L (CDR %L))
+     (GO LOOP)
+     DONE
+     (COND [%L (AND [*LESS (CHRCT) (*PLUS (FLATSIZE %L) 3.)]
+		    [TAB (OR %C1 %C2)])
+	       (PRINC " . ")
+	       (PRIN1 %L)])))
+
+(DE PP-VSEG (%L %N %C1 %C2 %BR)
+    {;; Prints the vector-segment of %L that starts at offset %N.
+	%C1 gives column to print lists in. 
+	%C2 gives column to print atoms in (if %C2 is NIL atoms are 
+	automatically outdented). If %C1 is NIL the elements are 
+	printed as a block (%C2 then gives the column to resume 
+	printing if an element won't fit on the line). %BR is the 
+	bracket flag to pass to %SPRINT.}
+    (PROG NIL
+     LOOP
+     (AND [EQ %N (VECTORLENGTH %L)] [RETURN NIL])
+     LOOP1
+     (COND [(NULL %C1)
+	    (COND [(AND %C2
+			[MINUSP (%PPSIZE (GETVECTOR %L %N)
+					 (SUB1 (CHRCT))
+					 T)])
+		   (TAB %C2)]
+		  [T (TYO 32.)])
+	    (COND [(VATOM (GETVECTOR %L %N)) (PRIN1 (GETVECTOR %L %N))
+		   (GO NEXT)])]
+	   [(VATOM (GETVECTOR %L %N))
+	    (TAB (OR %C2
+		     [*MAX 2.
+			   (SUB1 (*DIF %C1 (FLATSIZE (GETVECTOR %L %N))))]))
+	    (PRIN1 (GETVECTOR %L %N))
+	    (COND [(GREATERP (VECTORLENGTH %L)  (SETQ %N (ADD1 %N)))
+		   (TYO 32.)
+		   (GO LOOP1)])
+	    (RETURN NIL)]
+{;; Not sure what this is.  It doesn't seem to apply to vectors
+	   [(AND [LITATOM (CAAR %L)]
+		 [NUMBERP (GET (CAAR %L) 'COMMENT)])
+	    (TYO 32.)]  }
+	   [T (TAB %C1)])
+     (%SPRINT (GETVECTOR %L %N) %BR)
+     NEXT
+     (SETQ %N (ADD1 %N))
+     (GO LOOP)
+     DONE))
+
+{;; Special formatting routines:}
+
+(DE PP-FORMAT (%L %N %F)
+    {;; Formats the list %L with the first %N+1 elements (the function name 
+	and %N arguments) printed as a block. %F specifies how the rest of 
+	the list (the body) will be printed: if %F=NIL (standard format) all 
+	elements will be printed under the first argument; if %F=LABELS all 
+	non-atomic expressions will be printed under the first argument with 
+	atoms placed to the left (as labels); if %F=MISER all elements will 
+	be printed under the function name.}
+    (PROG (%C1 %C2 %RP)
+     (SETQ %RP %%RP)
+     (TYO %%LP)
+     (SETQ %C1 (CHRPOS))
+     (PRIN1 (CAR %L))
+     (SETQ %C2 (ADD1 (CHRPOS)))
+     (COND [(NOT (MINUSP (%PPSIZE (SETQ %L (CDR %L))
+				  (*MIN (CHRCT) PPMAXLEN)
+				  NIL)))
+	    (PP-LSEG %L NIL NIL NIL)]
+	   [T (COND [(*GREAT %N 0.)
+		     (PP-LSEG (SETQ %N
+				    (LDIFF %L
+					   (SETQ
+					    %L
+					    (NTH (CDR %L) %N))))
+			      NIL
+			      %C2
+			      NIL)]
+		    [T (SETQ %N NIL)])
+	      (PP-LSEG %L
+		       (COND [(EQ %F 'MISER) %C1] [T %C2])
+		       (COND [(NULL %F) %C2] [(EQ %F 'MISER) %C1])
+		       NIL)
+	      (AND %L [FREELIST %N])])
+     (TYOA %RP %C1)))
+
+(DE PP-VALUE (%A %D %P)
+  {;; Special formatter for VALUE props}
+  (AND %A 
+       [NEQ %A T]
+       [PRINA (LIST 'DV %A  %D) (PLUS (CHRPOS) (FLATSIZE %A) 8.)]))
+
+(DE PP-RMACS (%A %D %P)
+  {;; Special formatter for READMACRO props}
+  (SETQ %P (SETCHR %A NIL))
+  (SPRINT (LIST (COND [(EQ %P 11.) 'DSM] [T 'DRM]) %A %D) 1.))
+
+(DE PP-STRUCT (%A %D %P)
+  {;; Special formatter for STRUCTURE definition}
+  (SPRINT (MCONS 'DS %A (MAPCAR (F:L (X)
+				     (COND ((CADDR X)
+					    (LIST (CAR X) (CADDR X)))
+					   (T (CAR X))))
+				%D))))
+
+(DE PP-COMMENT (%L)
+    {;; This is the comment printer. Note that it will have to be fixed if 
+	AEXPLODEC is not present.}
+    (PROG (COL WORD LSAVE)
+     (AND [NULL (OUTCH)] [NULL COMMENTFLG] [RETURN (PRINC "*COMMENT*")])
+     (AND [NUMBERP (SETQ COL (GET (CAR %L) 'COMMENT))] [TAB COL])
+     (COND [(CDR (LAST %L)) (RETURN (PRINA %L (CHRPOS)))])
+     (TYO (COND [COMMENTSTR 123.] [T 40.]))
+     (PRIN1 (CAR %L))
+     (SETQ COL (ADD1 (CHRPOS)))
+     (COND [(OR [NOT (STRINGP (CADR %L))] [CDDR %L])
+	    (TYO 32.)
+	    (COND [COMMENTSTR (PRINLC (CDR %L) COL)]
+		  [T (PRINL (CDR %L) COL)])
+	    (GO DONE)])
+     (SETQ %L (SETQ LSAVE (NCONC (AEXPLODEC (CADR %L)) (LIST 0.))))
+     LOOP
+     (SETQ WORD (MEMB 32. %L))
+     (SETQ %L (PROG1 (CDR WORD) (SETQ WORD (LDIFF %L WORD))))
+     (COND [(NOT (*LESS (LENGTH WORD) (CHRCT))) (TAB COL)] [T (TYO 32.)])
+     (MAPC (FUNCTION 
+	    (LAMBDA (CH)
+	     (AND [NULL COMMENTSTR] [DELIM CH] [TYO 47.])
+	     (TYO CH)))
+	   WORD)
+     (AND [EQ (CAR (LAST WORD)) 46.] [NEQ (CHRCT) 0.] [TYO 32.])
+     (COND [%L (FREELIST WORD) (GO LOOP)] [T (FREELIST LSAVE)])
+     DONE
+     (TYOA (COND [COMMENTSTR 125.] [T 41.]) COL)))
+
+(DE PP-MISER (%L) (PP-FORMAT %L (OR [GET (CAR %L) 'PP-MISER] 1.) 'MISER))
+
+(DE PP-LABELS (%L) (PP-FORMAT %L (OR [GET (CAR %L) 'PP-LABELS] 1.) 'LABELS))
+
+(DE PP-SPECIAL (%L) (%PPSPEC %L (OR [GET (CAR %L) 'PP-SPECIAL] 1.)))
+
+
+(DE PP-DO (%L)
+    (%PPSPEC %L
+	     (COND [(ATOM (CDR %L)) 0.]
+		   [T (SELECTQ [CADR %L] [(WHILE UNTIL) 2.] [FOR 4.] 0.)])))
+
+(DE %PPSPEC (%L %N)
+    (PP-FORMAT %L
+	       %N
+	       (AND [*GREAT (*TIMES 6. (%DEPTH %L))
+			    (*DIF (CHRCT) (FLATSIZE (CAR %L)))]
+		    'MISER)))
+
+(DEFLIST (DEFPROP LAMBDA FUNCTION *FUNCTION) PP-MISER PRINTMACRO)
+
+(DEFLIST (FUNCTION *FUNCTION) 0. PP-MISER)
+
+(DEFLIST (PROG) PP-LABELS PRINTMACRO)
+
+(DEFLIST (DEFP DEFV SETQ DRM DSM DE DF DM DV F:L RPTQ PUSH)
+	 PP-SPECIAL 
+	 PRINTMACRO)
+
+(DEFLIST (DE DF DM) 2. PP-SPECIAL)
+
+(DEFPROP DO PP-DO PRINTMACRO)
+
+(DEFLIST (COND AND OR SELECTQ CATCH) BRACKETS PRINTMACRO)
+
+(DEFPROP QUOTE "'" PRINTMACRO)
+
+(DEFPROP ; PP-COMMENT PRINTMACRO)
+
+(DEFPROP ;; PP-COMMENT PRINTMACRO)
+
+(DEFPROP ; 40. COMMENT)
+
+(DEFPROP ;; T COMMENT)
+
+(DV PRETTYFLG T)
+
+(DV COMMENTFLG NIL)
+
+(DV COMMENTSTR T)
+
+(DV PRETTYPROPS
+    (SPECIAL (READMACRO . PP-RMACS)
+	     (EXPR . PP-FUNCTION)
+	     (FEXPR . PP-FUNCTION)
+	     (MACRO . PP-FUNCTION)
+	     (VALUE . PP-VALUE)
+	     (STRUCTURE-FIELDS . PP-STRUCT)
+	     PRINTMACRO))
+
+{;; In case someone gets cute and calls %SPRINT or PP-FORMAT directly instead 
+    of going thru SPRINT:}
+
+(PROGN (SETQ %%LL (LINELENGTH NIL)) (SETQ %%LP 40.) (SETQ %%RP 41.))
+
+{;; Set up names for GRINers: }
+(PROGN
+ (ALIAS 'GRINDEF (FUNDEF 'PP))
+ (ALIAS 'GRINL (FUNDEF 'PPL))
+ (SETQ GRINPROPS PRETTYPROPS))
+
+{;; (GETALL atom property) [EXPR] --> value or NIL
+	This function is an extended GET.  It handles the properties:
+	EXPR, FEXPR, MACRO, and VALUE; which have been removed from the
+	property list. }
+(DE GETALL (%A %P)
+    (COND [(EQ %P 'VALUE) (AND [BOUNDP %A][CONS %A (EVAL %A)])]
+	  [(EQ (CAR (FUNDEF %A)) %P) (CDR (FUNDEF %A))]
+	  [T (GET %A %P)]))
+
+{;; (GETLALL atom properties) [EXPR] --> plist tail or nil
+	Simulates GETL but includes the EXPR, FEXPR, MACRO, and VALUE
+	properties. }
+(DE GETLALL (%A %P)
+    (PROG (RETVAL)
+     (SETQ RETVAL (GETL %A %P))
+     (AND [MEMQ 'VALUE %P]
+	  [BOUNDP %A]
+	  [SETQ RETVAL (CONS 'VALUE (CONS (CONS %A (EVAL %A)) RETVAL))])
+     (AND [MEMQ (CAR (FUNDEF %A)) %P]
+	  [SETQ RETVAL
+		(CONS (CAR (FUNDEF %A)) (CONS (CDR (FUNDEF %A)) RETVAL))])
+     (RETURN RETVAL)))
+
+
+{;; (SPACES n pos) [EXPR] --> NIL
+	Print N spaces, using tab characters when possible.  If N
+	spaces won't fit on the currect line, current line, tabs
+	to position POS on the next line.  POS is optional, with a
+	value of 1 assumed if omitted. }
+(DE SPACES (N COL)
+  (COND	[(*LESS (CHRCT) N) (TAB (OR COL 1.))]
+	[(EQ N 1.) (TYO 32.)]
+	[T (TAB (*PLUS (CHRPOS) N))]))
+
+{;; (TYOA char pos) [EXPR] --> char
+        Identical to TYO, except if there is no room for CHAR
+        on  the  current line a tab to position POS on the next
+        line is  performed  before  printing  CHAR.  POS is
+        optional, with a value of 1 assumed if omitted}
+
+(DE TYOA (N C) (AND [=0 (CHRCT)] [TAB (OR C 1.)]) (TYO N))
+
+{;; (LDIFF X Y) [EXPR] --> differences or NIL
+	Y  must  be a tail of  X,  i.e.  EQ to the result of
+        applying  some  number of  CDRs to X.  LDIFF gives a
+        list of  all elements in X but  not in Y,  i.e., the
+        list difference of X and Y.  Thus (LDIFF X (MEMB FOO
+        X)) gives all elements in X up to the first FOO. 
+
+        Note  that the  value of  LDIFF  is always  new list
+        structure unless Y=NIL,  in which case (LDIFF X NIL)
+        is X itself. 
+
+        If  Y is not a tail of X,  LDIFF generates an error. 
+        LDIFF terminates on a NULL check. }
+(DE LDIFF (X Y)
+    (COND [(EQ X Y) NIL]
+	  [(NULL Y) X]
+	  [(ATOM X) (ERROR "Not a tail - LDIFF")]
+	  [T (CONS (CAR X) (LDIFF (CDR X) Y))]))
+
+(DE PRINA (X COL)
+  {;; PRINA and PRINAC use special vars to pass info to %PRINA in order to save
+      stack space}
+  (SETQ %%PACO (OR COL 1.))
+  (SETQ %%PAFN 'PRIN1)
+  (SETQ %%PAFS 'FLATSIZE)
+  (%PRINA X))
+
+(DE PRINAC (X COL)
+  (SETQ %%PACO (OR COL 1.))
+  (SETQ %%PAFN 'PRINC)
+  (SETQ %%PAFS 'FLATSIZEC)
+  (%PRINA X))
+
+(DE %PRINA (X)
+  (COND [(VATOM X)
+	 (AND [*LESS (CHRCT) (*PLUS (%%PAFS X) 3.)]
+	      [TAB %%PACO])
+	 (%%PAFN X)]
+	[(CONSP X) (AND [*LESS (CHRCT) 14.] [TAB %%PACO])
+	   (TYO 40.)
+	   (PROG (L)
+		 (SETQ L X)
+	    LOOP (%PRINA (CAR L))
+		 (COND [(PATOM (SETQ L (CDR L)))
+			(COND [L (AND [*LESS (CHRCT) 3.] [TAB %%PACO])
+				 (PRINC '" . ")
+				 (%PRINA L)])
+			(TYOA 41. %%PACO)
+			(RETURN X)]
+		       [T (SPACES 1. %%PACO) (GO LOOP)]))]
+	[T (AND [*LESS (CHRCT) 15.] [TAB %%PACO])
+	   (TYO 35.) (TYO 40.)
+	   (PROG (N)
+		 (SETQ N 0)
+	    LOOP (COND [(EQ N (VECTORLENGTH X))
+			(TYOA 41. %%PACO)
+			(RETURN X)])
+		 (AND (*GREAT N 0) (SPACES 1. %%PACO))
+	         (%PRINA (GETVECTOR X N))
+		 (SETQ N (ADD1 N))
+		 (GO LOOP))]))
+
+{;; (PP-FUNCTION atom definition property)
+	This function is used by PP (et al) to print functions.
+	It is a cross between prettyprint function and a printmacro.
+	It prints ATOM with it's DEFINITION in (DE ... format based
+	upon property (the type of function).  The first line will
+	try to have N elements on it where N is:
+		(+ 1 (OR (GET atom 'PP-FUNCTION) 2).}
+(DE PP-FUNCTION (%A %D %P)
+    (PP-FORMAT (CONS (CDR (ASSOC %P
+			    '((EXPR . DE) (FEXPR . DF) (MACRO . DM))))
+		     (CONS %A (CDDR %D)))
+	       (OR (GET %A 'PP-FUNCTION) 2)
+	       'MISER))
+    
+{;; THESE SHOULD EVENTUALLY BE REPLACED BY WORKING CODE}
+
+(ALIAS 'IASCII (FUNDEF 'ASCII))
+(DE FREE (L) NIL)
+(DE FREELIST (L) NIL)
+
+(DE PRINL (L COL)
+  (OR COL [SETQ COL 1.])
+  (COND [(CONSP L)
+	 (PRINA (CAR L) COL)
+	 (MAPC (FUNCTION (LAMBDA (X) (SPACES 1. COL) (PRINA X COL))) (CDR L))])
+  L)
+
+(DE PRINLC (L COL)
+  (OR COL [SETQ COL 1.])
+  (COND [(CONSP L)
+	 (PRINAC (CAR L) COL)
+	 (MAPC (FUNCTION (LAMBDA (X) (SPACES 1. COL) (PRINAC X COL))) (CDR L))])
+  L)
+

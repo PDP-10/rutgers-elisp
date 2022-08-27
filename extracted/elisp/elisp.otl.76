@@ -1,0 +1,236 @@
+@Comment{OUTLINE of ELISP.MSS.35 by Scribe 3B(1137) on 10 March 1982 at 13:57}
+ Table of Contents                                        1 ELISP.CONT.34, L.3
+ List of Tables                                           5 ELISP.TABCONT.31, L.3
+1 What is ELISP?                                          1 ELISP.MSS.35, L.106
+2 Historical notes and Acknowledgments                    3 ELISP.MSS.35, L.183
+3 The scope of this Manual                                4 ELISP.MSS.35, L.224
+  3.1 Summary of Chapters in the Descriptive Section      5 ELISP.MSS.35, L.271
+4 The basic syntax of Lisp                                8 ELISP.MSS.35, L.386
+5 The Basic Semantics of Lisp                            12 ELISP.MSS.35, L.611
+  5.1 Quote                                              15 ELISP.MSS.35, L.800
+  5.2 Function constants: LAMBDA forms                   16 ELISP.MSS.35, L.839
+  5.3 A preliminary description of EVAL                  17 ELISP.MSS.35, L.913
+6 Other function types and forms                         20 ELISP.MSS.35, L.1007
+  6.1 FEXPR                                              20 ELISP.MSS.35, L.1017
+  6.2 LEXPR                                              21 ELISP.MSS.35, L.1101
+  6.3 MACRO                                              22 ELISP.MSS.35, L.1124
+  6.4 SUBR's                                             23 ELISP.MSS.35, L.1181
+  6.5 LABEL                                              24 ELISP.MSS.35, L.1223
+  6.6 FUNARG                                             24 ELISP.MSS.35, L.1246
+7 Behavior of the Interpreter                            25 ELISP.MSS.35, L.1268
+  7.1 Functions that Invoke the Interpreter              28 ELISP.MSS.35, L.1483
+8 Functions Dealing with Lists and CONS Cells            30 ELISP.MSS.35, L.1525
+  8.1 Constructing Lists Incrementally - Adding a membe  35 ELISP.MSS.35, L.1829
+  8.2 Constructing a Whole List at Once                  36 ELISP.MSS.35, L.1892
+  8.3 Combining Existing Lists                           37 ELISP.MSS.35, L.1917
+  8.4 Modifying Existing Lists                           37 ELISP.MSS.35, L.1952
+  8.5 Getting Parts of a List                            38 ELISP.MSS.35, L.1997
+  8.6 Testing Lists or Finding Properties of Them        39 ELISP.MSS.35, L.2020
+  8.7 A-lists                                            40 ELISP.MSS.35, L.2075
+  8.8 Template instantiation facility                    40 ELISP.MSS.35, L.2099
+9 Tests, loops, and other program control; Errors        42 ELISP.MSS.35, L.2153
+  9.1 Basic Control Constructs                           42 ELISP.MSS.35, L.2182
+  9.2 Mapping functions                                  43 ELISP.MSS.35, L.2224
+  9.3 PROG                                               44 ELISP.MSS.35, L.2261
+  9.4 Non-local Transfers of Control                     44 ELISP.MSS.35, L.2280
+  9.5 The Single Stepper                                 44 ELISP.MSS.35, L.2309
+10 Boolean functions (Predicates)                        45 ELISP.MSS.35, L.2319
+  10.1 AND, OR, and NOT                                  45 ELISP.MSS.35, L.2346
+  10.2 Comparisons                                       45 ELISP.MSS.35, L.2357
+  10.3 Types and Properties                              47 ELISP.MSS.35, L.2457
+  10.4 Membership and Subset Tests                       48 ELISP.MSS.35, L.2520
+  10.5 Functions for Treating Integers as Bits           49 ELISP.MSS.35, L.2556
+11 I/O                                                   50 ELISP.MSS.35, L.2571
+  11.1 Basic output functions                            51 ELISP.MSS.35, L.2663
+  11.2 Nicer looking output                              52 ELISP.MSS.35, L.2730
+  11.3 Basic input function                              55 ELISP.MSS.35, L.2859
+  11.4 Dealing with individual characters                56 ELISP.MSS.35, L.2907
+  11.5 How to modify the syntax: Readmacros              57 ELISP.MSS.35, L.2957
+  11.6 More modifications of the syntax: MODCHR          58 ELISP.MSS.35, L.3030
+  11.7 Loading and saving definitions from files         59 ELISP.MSS.35, L.3086
+    11.7.1 How @elisp{LOADF and SAVEF}@rutlisp{DSKIN an  60 ELISP.MSS.35, L.3172
+    11.7.2 Summary of functions                          61 ELISP.MSS.35, L.3272
+  11.8 Basic file I/O                                    62 ELISP.MSS.35, L.3330
+  11.9 More general file I/O                             65 ELISP.MSS.35, L.3542
+  11.10 Terminal handling                                66 ELISP.MSS.35, L.3617
+  11.11 I/O Functions Present only for Compatibility     67 ELISP.MSS.35, L.3674
+12 Atoms                                                 68 ELISP.MSS.35, L.3695
+  12.1 Tests for Atoms                                   69 ELISP.MSS.35, L.3819
+  12.2 The PNAME                                         70 ELISP.MSS.35, L.3829
+  12.3 Values                                            70 ELISP.MSS.35, L.3857
+  12.4 Function definitions                              71 ELISP.MSS.35, L.3896
+  12.5 Property lists                                    72 ELISP.MSS.35, L.3956
+  12.6 Interning                                         72 ELISP.MSS.35, L.3972
+13 Numbers                                               73 ELISP.MSS.35, L.3987
+  13.1 Tests                                             73 ELISP.MSS.35, L.3989
+  13.2 Basic Arithmetic Operations                       74 ELISP.MSS.35, L.4040
+  13.3 Other Numerical Functions                         74 ELISP.MSS.35, L.4061
+  13.4 The arithmetic package                            74 ELISP.MSS.35, L.4077
+  13.5 Numerical I/O - A Couple of Oddities              76 ELISP.MSS.35, L.4152
+14 Characters and Strings                                77 ELISP.MSS.35, L.4166
+15 Properties                                            78 ELISP.MSS.35, L.4222
+16 Arrays@elisp{ and vectors}                            79 ELISP.MSS.35, L.4273
+17 Structures                                            83 ELISP.MSS.35, L.4475
+18 System functions and the Garbage Collector            86 ELISP.MSS.35, L.4638
+  18.1 Functions for building your own EMACS interface   86 ELISP.MSS.35, L.4645
+19 The Prettyprinter                                     88 ELISP.MSS.35, L.4754
+                              ppchap                     88 ELISP.MSS.35, L.4755
+  19.1 Simple use of the prettyprinter                   88 ELISP.MSS.35, L.4777
+  19.2 Prettyprint Commands                              89 ELISP.MSS.35, L.4813
+                              ppcom                      89 ELISP.MSS.35, L.4814
+  19.3 Printmacros                                       90 ELISP.MSS.35, L.4880
+                              printmacro                 90 ELISP.MSS.35, L.4881
+  19.4 Comments                                          92 ELISP.MSS.35, L.4978
+20 The Help System                                       94 ELISP.MSS.35, L.5032
+  20.1 Creating help                                     94 ELISP.MSS.35, L.5083
+  20.2 Functions for use with the help system            95 ELISP.MSS.35, L.5110
+21 Debugging Facilities                                  96 ELISP.MSS.35, L.5217
+  21.1 Introduction                                      96 ELISP.MSS.35, L.5219
+                              debex0                     98 ELISP.MSS.35, L.5324
+                              debex1                     99 ELISP.MSS.35, L.5381
+                              debex2                    100 ELISP.MSS.35, L.5429
+  21.2 The single stepper                               101 ELISP.MSS.35, L.5480
+                              sstep                     101 ELISP.MSS.35, L.5481
+  21.3 BREAK1                                           101 ELISP.MSS.35, L.5522
+                              break1                    101 ELISP.MSS.35, L.5523
+  21.4 WHAT YOU CAN DO IN A BREAK                       103 ELISP.MSS.35, L.5604
+                              startbreak                103 ELISP.MSS.35, L.5605
+    21.4.1 Break Commands                               103 ELISP.MSS.35, L.5607
+    21.4.2 Context Commands                             105 ELISP.MSS.35, L.5757
+    21.4.3 Backtrace Commands                           108 ELISP.MSS.35, L.5938
+                              endbreak                  109 ELISP.MSS.35, L.5996
+    21.4.4 Breakmacros                                  109 ELISP.MSS.35, L.5998
+  21.5 BREAK PACKAGE                                    110 ELISP.MSS.35, L.6043
+    21.5.1 How To Set A Break                           110 ELISP.MSS.35, L.6045
+    21.5.2 BREAK                                        110 ELISP.MSS.35, L.6066
+                              break                     110 ELISP.MSS.35, L.6067
+    21.5.3 TRACE                                        111 ELISP.MSS.35, L.6103
+                              trace                     111 ELISP.MSS.35, L.6104
+    21.5.4 BREAKIN                                      111 ELISP.MSS.35, L.6146
+                              breakin                   111 ELISP.MSS.35, L.6147
+    21.5.5 UNBREAK                                      113 ELISP.MSS.35, L.6231
+                              unbreak                   113 ELISP.MSS.35, L.6232
+    21.5.6 UNTRACE                                      113 ELISP.MSS.35, L.6255
+                              untrace                   113 ELISP.MSS.35, L.6256
+    21.5.7 BREAK0 [FN WHEN COMS]                        113 ELISP.MSS.35, L.6273
+                              break0                    113 ELISP.MSS.35, L.6274
+  21.6 ERROR PACKAGE                                    114 ELISP.MSS.35, L.6323
+    21.6.1 Introduction                                 114 ELISP.MSS.35, L.6326
+    21.6.2 Commands                                     115 ELISP.MSS.35, L.6361
+                              breaktab 21-1             116 ELISP.MSS.35, L.6375
+22 The LISP Editor                                      117 ELISP.MSS.35, L.6429
+  22.1 Contents                                         117 ELISP.MSS.35, L.6434
+  22.2 Introduction                                     117 ELISP.MSS.35, L.6474
+                              curexp                    118 ELISP.MSS.35, L.6499
+                              edn                       120 ELISP.MSS.35, L.6622
+  22.3 Commands for the New User                        123 ELISP.MSS.35, L.6834
+                              undo                      123 ELISP.MSS.35, L.6848
+                              up                        125 ELISP.MSS.35, L.6962
+                              edref                     126 ELISP.MSS.35, L.7039
+  22.4 Attention Changing Commands                      126 ELISP.MSS.35, L.7041
+  22.5 Local Attention-Changing Commands                126 ELISP.MSS.35, L.7064
+                              ed0                       128 ELISP.MSS.35, L.7166
+  22.6 Commands That Search                             130 ELISP.MSS.35, L.7326
+                              pat                       130 ELISP.MSS.35, L.7328
+  22.7 Search Algorithm                                 132 ELISP.MSS.35, L.7402
+                              sear                      132 ELISP.MSS.35, L.7403
+  22.8 search commands                                  133 ELISP.MSS.35, L.7473
+                              edft                      133 ELISP.MSS.35, L.7507
+  22.9 Location Specification                           135 ELISP.MSS.35, L.7617
+                              loc                       135 ELISP.MSS.35, L.7619
+                              second                    136 ELISP.MSS.35, L.7682
+                              edpat                     136 ELISP.MSS.35, L.7693
+                              genloc                    137 ELISP.MSS.35, L.7795
+                              restch                    138 ELISP.MSS.35, L.7854
+  22.10 Commands That Save and Restore the Edit Chain   138 ELISP.MSS.35, L.7855
+                              edp                       139 ELISP.MSS.35, L.7907
+  22.11 Commands That Modify Structure                  140 ELISP.MSS.35, L.7940
+  22.12 Implementation of Structure Modification Comman 140 ELISP.MSS.35, L.7988
+  22.13 The A,B,: Commands                              142 ELISP.MSS.35, L.8069
+                              edb                       142 ELISP.MSS.35, L.8080
+  22.14 Form Oriented Editing and the Role of UP        144 ELISP.MSS.35, L.8237
+                              upfind                    144 ELISP.MSS.35, L.8266
+  22.15 Extract and Embed                               145 ELISP.MSS.35, L.8285
+                              extr                      145 ELISP.MSS.35, L.8290
+  22.16 The MOVE Command                                147 ELISP.MSS.35, L.8424
+  22.17 Commands That "Move Parentheses"                149 ELISP.MSS.35, L.8557
+  22.18 TO and THRU                                     151 ELISP.MSS.35, L.8661
+                              thru                      151 ELISP.MSS.35, L.8663
+  22.19 Commands That Print                             154 ELISP.MSS.35, L.8872
+  22.20 Commands That Evaluate                          155 ELISP.MSS.35, L.8912
+                              edi                       155 ELISP.MSS.35, L.8947
+  22.21 Commands That Test                              157 ELISP.MSS.35, L.9033
+                              edif                      157 ELISP.MSS.35, L.9034
+  22.22 Macros                                          158 ELISP.MSS.35, L.9137
+  22.23 Miscellaneous Commands                          160 ELISP.MSS.35, L.9270
+                              ednil                     160 ELISP.MSS.35, L.9272
+                              stop1                     161 ELISP.MSS.35, L.9318
+                              stop2                     162 ELISP.MSS.35, L.9416
+                              edundo                    163 ELISP.MSS.35, L.9479
+  22.24 UNDO                                            163 ELISP.MSS.35, L.9482
+  22.25 Editdefault                                     165 ELISP.MSS.35, L.9579
+  22.26 Editor Functions                                166 ELISP.MSS.35, L.9635
+                              editf                     166 ELISP.MSS.35, L.9688
+                              fpat                      168 ELISP.MSS.35, L.9818
+23 The Compiler                                         170 ELISP.MSS.35, L.9872
+  23.1 The Special Variable Problem                     170 ELISP.MSS.35, L.9906
+  23.2 The Function Declaration Problem                 172 ELISP.MSS.35, L.9974
+  23.3 Special Considerations Involving MACRO's         173 ELISP.MSS.35, L.10042
+  23.4 Summary - How to Use the Compiler                174 ELISP.MSS.35, L.10131
+  23.5 Special forms for the compiler                   175 ELISP.MSS.35, L.10181
+  23.6 Other problems with compilation                  176 ELISP.MSS.35, L.10227
+24 The Evaluation Context Stack                         178 ELISP.MSS.35, L.10306
+  24.1 A-lists as Contexts                              179 ELISP.MSS.35, L.10401
+25 Descriptions of the Individual Functions             180 ELISP.MSS.35, p.2/L.2
+26 Notes for hackers                                    258 ELISP.MSS.35, p.2/L.4209
+  26.1 Use of DDT                                       258 ELISP.MSS.35, p.2/L.4216
+  26.2 Writing assembly language functions              259 ELISP.MSS.35, p.2/L.4254
+	Alphabetic Listing of Cross-Reference Tags and Labels
+
+Tag or Label Name                    Page   Label Value  Source file Location
+-----------------------------------------------------------------------------
+BREAK                                 110      21.5.2  ELISP.MSS.35, L.6067
+BREAK0                                113      21.5.7  ELISP.MSS.35, L.6274
+BREAK1                                101        21.3  ELISP.MSS.35, L.5523
+BREAKIN                               111      21.5.4  ELISP.MSS.35, L.6147
+BREAKTAB                              116        21-1  ELISP.MSS.35, L.6375
+CUREXP                                118        22.2  ELISP.MSS.35, L.6499
+DEBEX0                                 98        21.1  ELISP.MSS.35, L.5324
+DEBEX1                                 99        21.1  ELISP.MSS.35, L.5381
+DEBEX2                                100        21.1  ELISP.MSS.35, L.5429
+ED0                                   128        22.5  ELISP.MSS.35, L.7166
+EDB                                   142       22.13  ELISP.MSS.35, L.8080
+EDFT                                  133        22.8  ELISP.MSS.35, L.7507
+EDI                                   155       22.20  ELISP.MSS.35, L.8947
+EDIF                                  157       22.21  ELISP.MSS.35, L.9034
+EDITF                                 166       22.26  ELISP.MSS.35, L.9688
+EDN                                   120        22.2  ELISP.MSS.35, L.6622
+EDNIL                                 160       22.23  ELISP.MSS.35, L.9272
+EDP                                   139       22.10  ELISP.MSS.35, L.7907
+EDPAT                                 136        22.9  ELISP.MSS.35, L.7693
+EDREF                                 126        22.3  ELISP.MSS.35, L.7039
+EDUNDO                                163       22.23  ELISP.MSS.35, L.9479
+ENDBREAK                              109      21.4.3  ELISP.MSS.35, L.5996
+EXTR                                  145       22.15  ELISP.MSS.35, L.8290
+FPAT                                  168       22.26  ELISP.MSS.35, L.9818
+GENLOC                                137        22.9  ELISP.MSS.35, L.7795
+LOC                                   135        22.9  ELISP.MSS.35, L.7619
+PAT                                   130        22.6  ELISP.MSS.35, L.7328
+PPCHAP                                 88          19  ELISP.MSS.35, L.4755
+PPCOM                                  89        19.2  ELISP.MSS.35, L.4814
+PRINTMACRO                             90        19.3  ELISP.MSS.35, L.4881
+RESTCH                                138        22.9  ELISP.MSS.35, L.7854
+SEAR                                  132        22.7  ELISP.MSS.35, L.7403
+SECOND                                136        22.9  ELISP.MSS.35, L.7682
+SSTEP                                 101        21.2  ELISP.MSS.35, L.5481
+STARTBREAK                            103        21.4  ELISP.MSS.35, L.5605
+STOP1                                 161       22.23  ELISP.MSS.35, L.9318
+STOP2                                 162       22.23  ELISP.MSS.35, L.9416
+THRU                                  151       22.18  ELISP.MSS.35, L.8663
+TRACE                                 111      21.5.3  ELISP.MSS.35, L.6104
+UNBREAK                               113      21.5.5  ELISP.MSS.35, L.6232
+UNDO                                  123        22.3  ELISP.MSS.35, L.6848
+UNTRACE                               113      21.5.6  ELISP.MSS.35, L.6256
+UP                                    125        22.3  ELISP.MSS.35, L.6962
+UPFIND                                144       22.14  ELISP.MSS.35, L.8266
+    

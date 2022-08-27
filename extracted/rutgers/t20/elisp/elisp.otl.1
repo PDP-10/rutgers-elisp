@@ -1,0 +1,239 @@
+@Comment{OUTLINE of ELISP.MSS.57 by Scribe 3C(1254) on 21 October 1982 at 15:38}
+ Table of Contents                                        1 ELISP.CONT.50 line 3
+ List of Tables                                           5 ELISP.TABCONT.47 line 3
+1. What is ELISP?                                         1 ELISP.MSS.57 line 93
+2. Historical notes and Acknowledgments                   3 ELISP.MSS.57 line 171
+3. The scope of this Manual                               4 ELISP.MSS.57 line 212
+  3.1. Summary of Chapters in the Descriptive Section     5 ELISP.MSS.57 line 259
+4. The basic syntax of Lisp                               8 ELISP.MSS.57 line 376
+5. The Basic Semantics of Lisp                           12 ELISP.MSS.57 line 607
+  5.1. Quote                                             15 ELISP.MSS.57 line 796
+  5.2. Function constants: LAMBDA forms                  16 ELISP.MSS.57 line 835
+  5.3. A preliminary description of EVAL                 17 ELISP.MSS.57 line 909
+6. Other function types and forms                        20 ELISP.MSS.57 line 1003
+  6.1. FEXPR                                             20 ELISP.MSS.57 line 1013
+  6.2. LEXPR                                             21 ELISP.MSS.57 line 1097
+  6.3. MACRO                                             22 ELISP.MSS.57 line 1120
+  6.4. SUBR's                                            23 ELISP.MSS.57 line 1177
+  6.5. LABEL                                             24 ELISP.MSS.57 line 1219
+  6.6. FUNARG                                            24 ELISP.MSS.57 line 1242
+7. Behavior of the Interpreter                           25 ELISP.MSS.57 line 1264
+  7.1. Functions that Invoke the Interpreter             28 ELISP.MSS.57 line 1479
+8. Functions Dealing with Lists and CONS Cells           30 ELISP.MSS.57 line 1521
+  8.1. Constructing Lists Incrementally - Adding a memb  35 ELISP.MSS.57 line 1828
+  8.2. Constructing a Whole List at Once                 36 ELISP.MSS.57 line 1891
+  8.3. Combining Existing Lists                          37 ELISP.MSS.57 line 1916
+  8.4. Modifying Existing Lists                          37 ELISP.MSS.57 line 1951
+  8.5. Getting Parts of a List                           38 ELISP.MSS.57 line 1996
+  8.6. Testing Lists or Finding Properties of Them       39 ELISP.MSS.57 line 2019
+  8.7. A-lists                                           40 ELISP.MSS.57 line 2079
+  8.8. Template instantiation facility                   40 ELISP.MSS.57 line 2103
+9. Tests, loops, and other program control; Errors       42 ELISP.MSS.57 line 2157
+  9.1. Basic Control Constructs                          42 ELISP.MSS.57 line 2186
+  9.2. Mapping functions                                 43 ELISP.MSS.57 line 2228
+  9.3. PROG                                              44 ELISP.MSS.57 line 2265
+  9.4. Non-local Transfers of Control                    44 ELISP.MSS.57 line 2284
+                              nonlocal                   44 ELISP.MSS.57 line 2285
+  9.5. The Single Stepper                                46 ELISP.MSS.57 line 2405
+10. Boolean functions (Predicates)                       47 ELISP.MSS.57 line 2415
+  10.1. AND, OR, and NOT                                 47 ELISP.MSS.57 line 2442
+  10.2. Comparisons                                      47 ELISP.MSS.57 line 2453
+  10.3. Types and Properties                             49 ELISP.MSS.57 line 2564
+  10.4. Membership and Subset Tests                      50 ELISP.MSS.57 line 2627
+  10.5. Functions for Treating Integers as Bits          51 ELISP.MSS.57 line 2663
+11. I/O                                                  52 ELISP.MSS.57 line 2683
+  11.1. Basic output functions                           53 ELISP.MSS.57 line 2777
+  11.2. Nicer looking output                             54 ELISP.MSS.57 line 2844
+  11.3. Basic input function                             57 ELISP.MSS.57 line 2978
+  11.4. Dealing with individual characters               58 ELISP.MSS.57 line 3026
+  11.5. How to modify the syntax: Readmacros             59 ELISP.MSS.57 line 3081
+  11.6. More modifications of the syntax: MODCHR         61 ELISP.MSS.57 line 3185
+  11.7. Loading and saving definitions from files        62 ELISP.MSS.57 line 3257
+    11.7.1. How @elisp{LOADF and SAVEF}@rutlisp{DSKIN a  63 ELISP.MSS.57 line 3343
+    11.7.2. Summary of functions                         64 ELISP.MSS.57 line 3443
+  11.8. Basic file I/O                                   65 ELISP.MSS.57 line 3501
+  11.9. More general file I/O                            68 ELISP.MSS.57 line 3713
+  11.10. Terminal handling                               69 ELISP.MSS.57 line 3791
+  11.11. I/O Functions Present only for Compatibility    70 ELISP.MSS.57 line 3848
+  11.12. I/O into Strings                                70 ELISP.MSS.57 line 3870
+12. Atoms                                                71 ELISP.MSS.57 line 3895
+  12.1. Tests for Atoms                                  72 ELISP.MSS.57 line 4019
+  12.2. The PNAME                                        73 ELISP.MSS.57 line 4029
+  12.3. Values                                           74 ELISP.MSS.57 line 4074
+  12.4. Function definitions                             74 ELISP.MSS.57 line 4118
+  12.5. Property lists                                   75 ELISP.MSS.57 line 4181
+  12.6. Interning                                        76 ELISP.MSS.57 line 4197
+13. Numbers                                              77 ELISP.MSS.57 line 4212
+  13.1. Tests                                            77 ELISP.MSS.57 line 4214
+  13.2. Basic Arithmetic Operations                      78 ELISP.MSS.57 line 4267
+  13.3. Other Numerical Functions                        78 ELISP.MSS.57 line 4288
+  13.4. The arithmetic package                           78 ELISP.MSS.57 line 4311
+  13.5. Numerical I/O - A Couple of Oddities             80 ELISP.MSS.57 line 4388
+14. Characters and Strings                               81 ELISP.MSS.57 line 4402
+15. Associative Data Structures                          84 ELISP.MSS.57 line 4578
+16. Arrays@elisp{ and vectors}                           87 ELISP.MSS.57 line 4720
+17. Structures                                           91 ELISP.MSS.57 line 4922
+18. System functions and the Garbage Collector           95 ELISP.MSS.57 line 5105
+  18.1. Functions for building your own EMACS interface  95 ELISP.MSS.57 line 5112
+19. The Prettyprinter                                    97 ELISP.MSS.57 line 5227
+                              ppchap                     97 ELISP.MSS.57 line 5228
+  19.1. Simple use of the prettyprinter                  97 ELISP.MSS.57 line 5250
+  19.2. Prettyprint Commands                             98 ELISP.MSS.57 line 5286
+                              ppcom                      98 ELISP.MSS.57 line 5287
+  19.3. Printmacros                                      99 ELISP.MSS.57 line 5353
+                              printmacro                 99 ELISP.MSS.57 line 5354
+  19.4. Comments                                        101 ELISP.MSS.57 line 5451
+20. The Help System                                     103 ELISP.MSS.57 line 5505
+  20.1. Creating help                                   103 ELISP.MSS.57 line 5556
+  20.2. Functions for use with the help system          104 ELISP.MSS.57 line 5583
+21. Debugging Facilities                                105 ELISP.MSS.57 line 5690
+  21.1. Introduction                                    105 ELISP.MSS.57 line 5692
+                              debex0                    107 ELISP.MSS.57 line 5797
+                              debex1                    108 ELISP.MSS.57 line 5854
+                              debex2                    109 ELISP.MSS.57 line 5902
+  21.2. The single stepper                              110 ELISP.MSS.57 line 5953
+                              sstep                     110 ELISP.MSS.57 line 5954
+  21.3. BREAK1                                          110 ELISP.MSS.57 line 5995
+                              break1                    110 ELISP.MSS.57 line 5996
+  21.4. WHAT YOU CAN DO IN A BREAK                      112 ELISP.MSS.57 line 6077
+                              startbreak                112 ELISP.MSS.57 line 6078
+    21.4.1. Break Commands                              112 ELISP.MSS.57 line 6080
+    21.4.2. Context Commands                            114 ELISP.MSS.57 line 6230
+    21.4.3. Backtrace Commands                          117 ELISP.MSS.57 line 6411
+                              endbreak                  118 ELISP.MSS.57 line 6469
+    21.4.4. Breakmacros                                 118 ELISP.MSS.57 line 6471
+  21.5. BREAK PACKAGE                                   119 ELISP.MSS.57 line 6516
+    21.5.1. How To Set A Break                          119 ELISP.MSS.57 line 6518
+    21.5.2. BREAK                                       119 ELISP.MSS.57 line 6539
+                              break                     119 ELISP.MSS.57 line 6540
+    21.5.3. TRACE                                       120 ELISP.MSS.57 line 6576
+                              trace                     120 ELISP.MSS.57 line 6577
+    21.5.4. BREAKIN                                     120 ELISP.MSS.57 line 6619
+                              breakin                   120 ELISP.MSS.57 line 6620
+    21.5.5. UNBREAK                                     122 ELISP.MSS.57 line 6704
+                              unbreak                   122 ELISP.MSS.57 line 6705
+    21.5.6. UNTRACE                                     122 ELISP.MSS.57 line 6728
+                              untrace                   122 ELISP.MSS.57 line 6729
+    21.5.7. BREAK0 [FN WHEN COMS]                       122 ELISP.MSS.57 line 6746
+                              break0                    122 ELISP.MSS.57 line 6747
+  21.6. ERROR PACKAGE                                   123 ELISP.MSS.57 line 6796
+    21.6.1. Introduction                                123 ELISP.MSS.57 line 6799
+    21.6.2. Commands                                    124 ELISP.MSS.57 line 6834
+                              breaktab 21-1             125 ELISP.MSS.57 line 6848
+22. The LISP Editor                                     126 ELISP.MSS.57 line 6902
+  22.1. Contents                                        126 ELISP.MSS.57 line 6907
+  22.2. Introduction                                    126 ELISP.MSS.57 line 6947
+                              curexp                    127 ELISP.MSS.57 line 6972
+                              edn                       129 ELISP.MSS.57 line 7095
+  22.3. Commands for the New User                       132 ELISP.MSS.57 line 7307
+                              undo                      132 ELISP.MSS.57 line 7321
+                              up                        134 ELISP.MSS.57 line 7435
+                              edref                     135 ELISP.MSS.57 line 7512
+  22.4. Attention Changing Commands                     135 ELISP.MSS.57 line 7514
+  22.5. Local Attention-Changing Commands               135 ELISP.MSS.57 line 7537
+                              ed0                       137 ELISP.MSS.57 line 7639
+  22.6. Commands That Search                            139 ELISP.MSS.57 line 7799
+                              pat                       139 ELISP.MSS.57 line 7801
+  22.7. Search Algorithm                                141 ELISP.MSS.57 line 7875
+                              sear                      141 ELISP.MSS.57 line 7876
+  22.8. search commands                                 142 ELISP.MSS.57 line 7946
+                              edft                      142 ELISP.MSS.57 line 7980
+  22.9. Location Specification                          144 ELISP.MSS.57 line 8090
+                              loc                       144 ELISP.MSS.57 line 8092
+                              second                    145 ELISP.MSS.57 line 8155
+                              edpat                     145 ELISP.MSS.57 line 8166
+                              genloc                    146 ELISP.MSS.57 line 8268
+                              restch                    147 ELISP.MSS.57 line 8327
+  22.10. Commands That Save and Restore the Edit Chain  147 ELISP.MSS.57 line 8328
+                              edp                       148 ELISP.MSS.57 line 8380
+  22.11. Commands That Modify Structure                 149 ELISP.MSS.57 line 8413
+  22.12. Implementation of Structure Modification Comma 149 ELISP.MSS.57 line 8461
+  22.13. The A,B,: Commands                             151 ELISP.MSS.57 line 8542
+                              edb                       151 ELISP.MSS.57 line 8553
+  22.14. Form Oriented Editing and the Role of UP       153 ELISP.MSS.57 line 8710
+                              upfind                    153 ELISP.MSS.57 line 8739
+  22.15. Extract and Embed                              154 ELISP.MSS.57 line 8758
+                              extr                      154 ELISP.MSS.57 line 8763
+  22.16. The MOVE Command                               156 ELISP.MSS.57 line 8897
+  22.17. Commands That "Move Parentheses"               158 ELISP.MSS.57 line 9030
+  22.18. TO and THRU                                    160 ELISP.MSS.57 line 9134
+                              thru                      160 ELISP.MSS.57 line 9136
+  22.19. Commands That Print                            163 ELISP.MSS.57 line 9345
+  22.20. Commands That Evaluate                         164 ELISP.MSS.57 line 9385
+                              edi                       164 ELISP.MSS.57 line 9420
+  22.21. Commands That Test                             166 ELISP.MSS.57 line 9506
+                              edif                      166 ELISP.MSS.57 line 9507
+  22.22. Macros                                         167 ELISP.MSS.57 line 9610
+  22.23. Miscellaneous Commands                         169 ELISP.MSS.57 line 9743
+                              ednil                     169 ELISP.MSS.57 line 9745
+                              stop1                     170 ELISP.MSS.57 line 9791
+                              stop2                     171 ELISP.MSS.57 line 9889
+                              edundo                    172 ELISP.MSS.57 line 9952
+  22.24. UNDO                                           172 ELISP.MSS.57 line 9955
+  22.25. Editdefault                                    174 ELISP.MSS.57 line 10052
+  22.26. Editor Functions                               175 ELISP.MSS.57 line 10108
+                              editf                     175 ELISP.MSS.57 line 10161
+                              fpat                      177 ELISP.MSS.57 line 10291
+23. The Compiler                                        179 ELISP.MSS.57 line 10345
+  23.1. The Special Variable Problem                    179 ELISP.MSS.57 line 10379
+  23.2. The Function Declaration Problem                181 ELISP.MSS.57 line 10447
+  23.3. Special Considerations Involving MACRO's        182 ELISP.MSS.57 line 10515
+  23.4. Summary - How to Use the Compiler               183 ELISP.MSS.57 line 10604
+  23.5. Special forms for the compiler                  184 ELISP.MSS.57 line 10654
+  23.6. Other problems with compilation                 185 ELISP.MSS.57 line 10700
+24. The Evaluation Context Stack                        187 ELISP.MSS.57 line 10779
+  24.1. A-lists as Contexts                             188 ELISP.MSS.57 line 10881
+25. Descriptions of the Individual Functions            190 ELISP.MSS.57 line 2 on page 2
+26. Notes for hackers                                   275 ELISP.MSS.57 line 4679 on page 2
+  26.1. Use of DDT                                      275 ELISP.MSS.57 line 4686 on page 2
+  26.2. Writing assembly language functions             276 ELISP.MSS.57 line 4724 on page 2
+	Alphabetic Listing of Cross-Reference Tags and Labels
+
+Tag or Label Name                    Page   Label Value  Source file Location
+-----------------------------------------------------------------------------
+BREAK                                 119      21.5.2  ELISP.MSS.57 line 6540
+BREAK0                                122      21.5.7  ELISP.MSS.57 line 6747
+BREAK1                                110        21.3  ELISP.MSS.57 line 5996
+BREAKIN                               120      21.5.4  ELISP.MSS.57 line 6620
+BREAKTAB                              125        21-1  ELISP.MSS.57 line 6848
+CUREXP                                127        22.2  ELISP.MSS.57 line 6972
+DEBEX0                                107        21.1  ELISP.MSS.57 line 5797
+DEBEX1                                108        21.1  ELISP.MSS.57 line 5854
+DEBEX2                                109        21.1  ELISP.MSS.57 line 5902
+ED0                                   137        22.5  ELISP.MSS.57 line 7639
+EDB                                   151       22.13  ELISP.MSS.57 line 8553
+EDFT                                  142        22.8  ELISP.MSS.57 line 7980
+EDI                                   164       22.20  ELISP.MSS.57 line 9420
+EDIF                                  166       22.21  ELISP.MSS.57 line 9507
+EDITF                                 175       22.26  ELISP.MSS.57 line 10161
+EDN                                   129        22.2  ELISP.MSS.57 line 7095
+EDNIL                                 169       22.23  ELISP.MSS.57 line 9745
+EDP                                   148       22.10  ELISP.MSS.57 line 8380
+EDPAT                                 145        22.9  ELISP.MSS.57 line 8166
+EDREF                                 135        22.3  ELISP.MSS.57 line 7512
+EDUNDO                                172       22.23  ELISP.MSS.57 line 9952
+ENDBREAK                              118      21.4.3  ELISP.MSS.57 line 6469
+EXTR                                  154       22.15  ELISP.MSS.57 line 8763
+FPAT                                  177       22.26  ELISP.MSS.57 line 10291
+GENLOC                                146        22.9  ELISP.MSS.57 line 8268
+LOC                                   144        22.9  ELISP.MSS.57 line 8092
+NONLOCAL                               44         9.4  ELISP.MSS.57 line 2285
+PAT                                   139        22.6  ELISP.MSS.57 line 7801
+PPCHAP                                 97          19  ELISP.MSS.57 line 5228
+PPCOM                                  98        19.2  ELISP.MSS.57 line 5287
+PRINTMACRO                             99        19.3  ELISP.MSS.57 line 5354
+RESTCH                                147        22.9  ELISP.MSS.57 line 8327
+SEAR                                  141        22.7  ELISP.MSS.57 line 7876
+SECOND                                145        22.9  ELISP.MSS.57 line 8155
+SSTEP                                 110        21.2  ELISP.MSS.57 line 5954
+STARTBREAK                            112        21.4  ELISP.MSS.57 line 6078
+STOP1                                 170       22.23  ELISP.MSS.57 line 9791
+STOP2                                 171       22.23  ELISP.MSS.57 line 9889
+THRU                                  160       22.18  ELISP.MSS.57 line 9136
+TRACE                                 120      21.5.3  ELISP.MSS.57 line 6577
+UNBREAK                               122      21.5.5  ELISP.MSS.57 line 6705
+UNDO                                  132        22.3  ELISP.MSS.57 line 7321
+UNTRACE                               122      21.5.6  ELISP.MSS.57 line 6729
+UP                                    134        22.3  ELISP.MSS.57 line 7435
+UPFIND                                153       22.14  ELISP.MSS.57 line 8739
+   

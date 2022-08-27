@@ -1,0 +1,282 @@
+You will notice copyright notices various places on Elisp.  DEC has now
+agreed to pay us for work on it.  Since we are getting support from
+them, we do not expect anything specific in exchange from the people we
+send it to.  Therefore we hereby give permission for anyone, even
+commercial users, to use it and copy it as they see fit, with the
+following provisions:
+  - you must retain the copyright notices on any copies you make.
+  - you must give credit to Charles Hedrick and/or Rutgers University
+	when describing the system in documentation or publications.
+	Any documentation for Elisp that is more than 30 pages long must
+	include the entire content (though not necessarily in exactly
+	the same form) of the acknowlegement section from ELISP.DOC.
+  - if you change Elisp sufficiently that it no longer makes sense to
+	consider it the same program, documentation for your program
+	should state that it is based on Elisp, acknowledging Charles
+	Hedrick and Rutgers University.  Any document that is more than
+	30 pages long must include the entire content (though not
+	necessarily in exactly the same form) of the acknowlegement
+	section from ELISP.DOC, and a rough indication of how much of
+	the system and documentation is your own and how much is Elisp.
+We would appreciate it if you did not send copies to other people, but
+refered them to Charles Hedrick
+   CCIS
+   Rutgers University
+   P.O. Box 879
+   Piscataway, NJ  08854
+We would like to know who are users are and make sure what they get is
+up to date.  However we do not absolutely prohibit redistribution, in
+case there is some specific reason why it is not practical to send
+someone to us.  In particular, if one of your users leaves your site, he
+should feel free to take the version of the system that he is currently
+using with him.
+
+-----------------------------------------------------------------------
+
+ELISP is a version of Rutgers/UCI Lisp that supports extended
+addressing. Currently it will run only on Tops-20 with KL-10 model B
+processors. All 2060's are model B's.  Most 2040's are, depending upon
+how recently they were made.  Some 2050's are, depending upon how
+recently they were made.  No 2020 will support extended addressing.
+
+If you do not want to rebuild from source, here are the steps needed
+to install it:
+
+1) If you are running Tops-20 version 4, look at MONITOR.CHANGES.
+	This contains two patches which apply to use of extended
+	addressing.  They are each given in source form, and also
+	as commands which you can type to DDT to install them.
+	
+	In order to use extended addressing, you must put in at
+	least the first patch, which is a one-word patch to turn
+	on extended addressing.  It does not change any code, but
+	merely enables the support that is already in the monitor.
+
+	The other patch fixes a bug that will annoy you but not
+	cause serious trouble.  When this bug hits, your job will
+	be frozen for 2 minutes, after which a non-fatal BUGCHK
+	will be printed on the console and you will continue.
+	The bug hits if you ^C out of an extended-addressing program
+	and then run another program.  You can prevent it if you
+	type ^C, then type RESET, and then wait a couple of seconds
+	before running any other program.
+
+	Note that INFO MEMORY will take a *very* long time when
+	you are looking at an ELISP core image.  Be patient.  It
+	will work eventually.  (Release 5 speeds it up to the
+	expected speed.)
+
+  If you are running monitor version 5 or later, no changes are
+	needed.
+
+  Please caution your users not to use the EXEC's SAVE command to
+	save an ELISP core image, but instead to use SAVEIMAGE
+	from within ELISP.
+
+2) Define a system-wide logical device ELISP:.  It should point to
+	the directories on which the following files are put.
+
+3) Put the following files on the system.  I show my preferences as to
+	where they should go, but as long as ELISP: has the right
+	definition, you can put these files anywhere you like:
+  SYS:
+	ELISP.EXE - the basic ELISP system
+	ELISP.REL - used when you want to load .REL files 
+		from languages other than LISP.  Should be on
+		the same directory as ELISP.EXE.  ELISP.REL
+		and ELISP.EXE must always match, i.e. if you
+		put up a new ELISP.EXE, always put up the new
+		ELISP.REL generated at the same time.
+	ELISPC.EXE - the Lisp compiler
+  DOC:
+	ELISP.MAN - the manual.  NB: ELISP.MAN is actually called
+		ELISP.DOC on this distribution.  This is so we can build
+		a new one without clobbering existing users.  Rename
+		ELISP.DOC to ELISP.MAN when you move it to its final
+		resting place.
+ <ELISP>
+	ELISP.NDX - index into ELISP.MAN, used by the HELP system.
+		This must agree with ELISP.MAN (and is generated from
+		it).
+	HELPER.HLP - help texts for help system
+	HELPER.INDEX - index into HELPER.HLP.  This must agree with
+		HELPER.HLP (and is generated from it).
+	EARITH.REL, EARITH.LSP - loads trig functions and random
+		number functions from the Fortran library.
+
+=======================================================================
+
+The following notes will help you if you are trying to generate new
+versions of the system.  Note that we use the following processors:
+  MIDAS - an assembler from MIT.  Used because it is much faster
+	than MACRO, and because it generates an .EXE file directly,
+	thus bypassing LINK.  A copy of MIDAS.EXE should be
+	included with this system.
+  SCRIBE - a document processor.  Available from Unilogic, Inc.  It
+	is also sold by DEC.
+	  Unilogic, Inc.
+	  605 Devonshire St.
+	  Pittsburgh, Pa. 15213
+	This is used to produce ELISP.DOC from ELISP.MSS.
+  SITBOL - this is a version of Snobol.  It is used to produce the index
+	ELISP.NDX.  It reads ELISP.DOC.  We believe it is available
+	from
+	  Leslie Maltz
+	  Computer Center
+	  Stevens Institute of Technology
+	  Hoboken, NJ
+	although it is also possible that DEC is selling it.
+
+Here are the procedures to build the various components:
+
+--------------------------------------------------------------------------
+
+To build a distributed ELISP.EXE.  Requires:
+  compiled Midas file: BOOT.EXE
+  command file: BOOT.INIT
+  compiled Lisp files: FLAP.FLAP, BOOT.FLAP, LISP.FLAP, PP.FLAP,
+	EDIT.FLAP, BREAK.FLAP, ERRORX.FLAP, ARRAY.FLAP, HELPER.FLAP
+
+You should do this whenever you change BOOT.MID, BOOT.INIT,  or the .LSP
+file corresponding to any of the .FLAP files shown above.
+
+BOOT.EXE is built from BOOT.MID, as shown below.  You can use the
+existing BOOT.EXE unless you have changed BOOT.MID.
+
+The compiled Lisp files (.FLAP) are built from the corresponding .LSP
+files as shown below.  You should be able to use existing .FLAP files
+except where you have changed the corresponding .LSP file.
+
+@run boot  ;run BOOT.EXE.  This first writes out a new ELISP.REL,
+*(boot)	   ;and then takes commands from BOOT.INIT.  BOOT.INIT 
+	   ;causes it to automatically load all the compiled Lisp code.
+	   ;(BOOT) causes the loaded core image to be dumped as
+	   ;ELISP.EXE.
+
+---------
+Here is how you produce BOOT.EXE, if you change BOOT.MID.  Requires:
+   source: BOOT.MID
+
+@midas	;compile the source - produces BOOT.EXE
+*boot
+---------
+Here is how you produce the .FLAP files.  To produce x.FLAP, you start
+with x.LSP, and use the Lisp compiler (ELISPC) to compile it.  E.g.
+to produce LISP.FLAP you would do
+
+@run elispc
+*(compl (lisp.lsp))
+*^C
+
+The one exception to this is that FLAP.LSP requires JOSH.INIT:
+
+@run elispc
+*(dskin (josh.lsp))
+*(compl (flap.lsp))
+*^C
+
+------------------------------------------------------------------------
+To build the distributed ELISPC.EXE.  Requires:
+  Lisp core image:  ELISP.EXE
+  Compiled version of the compiler: COMPLR.FLAP
+  List of functions that the compiler should know about: CMACS.LOD
+
+You should do this whenever you build a new version of ELISP.EXE, 
+or if you change COMPLR.LSP or CMACS.LSP.  (You should change CMACS.LSP
+whenever you add a new function to Lisp that the compiler should
+know about.)
+
+ELISP.EXE comes from the process shown above.
+
+COMPLR.FLAP comes from compiling COMPLR.LSP, as we will show below.
+
+CMACS.LOD is produced from CMACS.LSP, as we will show below.
+
+@run elisp
+*(dskin "complr.flap")   ;this also loads CMACS.LOD
+*(bootc)		 ;this writes out ELISPC.EXE
+
+--------------
+
+To generate COMPLR.FLAP.  Requires:
+  usable Lisp system: ELISP.EXE, or preferably ELISPC.EXE
+  source: COMPLR.LSP - compiler source
+  declaration file: CMACS.LOD - lists all the functions the compiler
+	should know about
+  various macro definition files, loaded by JOSH.LSP
+
+This should be done whenever you change COMPLR.LSP.
+
+If you have a version of ELISPC that can be
+used, it is fairly easy.  
+
+@run elispc
+*(dskin (josh.lsp))	;loads some macros used by the compiler
+*(compl (complr.lsp))	;produces COMPLR.FLAP
+
+If for some reason you can't use the existing ELISPC:
+
+@run elisp
+*(dskin "josh.lsp")
+*(dskin "complr.lsp")    Or "complr.flap" if you have compiled it.
+*(compl (complr.lsp))
+	COMPLR.LSP, and CMACS.LSP, use Josh's macros.  This step is
+	just producing a FLAP file, so the easiest approach is to
+	just load his INIT file.  Of course we do not want to load
+	his init file when building any production core images.
+	The output of this stage is just COMPLR.FLAP.
+
+--------
+To generate a new CMACS.LOD:  This must be done whenever you add a new
+function to the system, or change the arguments or type or an existing
+one.
+
+@run elisp
+@(dskin "upmacs.lsp")	;reads CMACS.LSP, writes out CMACS.LOD
+
+----------------------------------------------------------------------
+To generate ELAP.LOD.  Note that LAP is currently not needed for
+the distributed version.  LAP is used for loading the machine-
+independent CMACS compiled code.  The compiler now produces FLAP
+code by default, which is loaded by a separate FLAP loader, which
+is present in the core image by default.  This step requires an
+up to date ELAP.LAP.  Note: we do not currently do this at all.
+We keep around only ELAP.FLAP
+
+run elisp
+(dskin "uplap.lsp")
+	The purpose of ELAP.LOD was explained above.  UPLAP
+	automatically reads in JOSH.INIT, and expands all the
+	macros.  Thus the resulting ELAP.LOD can be used with
+	a vanilla core image.  
+--------
+To generate ELAP.FLAP.  See the note above about the uselessness
+of ELAP.
+
+@run elispc
+*(dskin "josh.lsp")
+*(compl "elap.lsp")
+
+--------------------------------------------------------------------
+There are batch control files to compile the various modules:
+  COMCOM.CTL - does UPMACS and compiles the compiler
+  COMALL.CTL - compiles all the modules used in ELISP.EXE
+
+--------------------------------------------------------------------
+
+The help system needs the following files:
+   DOC:ELISP.MAN
+   <ELISP>ELISP.NDX - index to DOC:ELISP.MAN, produced by the
+	Sitbol program ELIX.SIT.
+   <ELISP>HELPER.HLP - help text for the Help system, and other
+	things not in the manual.
+   <ELISP>HELPER.INDEX - index to HELPER.HLP, produced by
+	HELP:CREATE-INDEX-FILE in Lisp
+
+--------------------------------------------------------------------
+
+The file OLD.LSP contains commands to remove some readmacro definitions
+that cause incompatibilities between Elisp and R/UCI Lisp.  Use these
+if you prefer to allow # ` or comma to have their old meanings instead
+of the new meanings defined in Elisp.
+ 

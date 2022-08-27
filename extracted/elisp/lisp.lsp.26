@@ -1,0 +1,885 @@
+(SPECIAL ALLFILES ALLSAVE CATCH THROW RPTN %MATOM%FN PP %FOOFNS COMMENTFLG 
+	 UCICHANNELS LASTWORD EDITV *RAISE *NOPOINT *NOPOINTDSK *RAISEDSK
+	 %FILES ALLFNS ALLVALS ALLSTRS)
+
+(SETQ ALLVALS NIL)
+(SETQ ALLFNS NIL)
+(SETQ ALLSTRS NIL)
+
+{;; (F:L <vars> <e1> ...)
+        F:L is a macro which expands to
+             (FUNCTION (LAMBDA <vars> <e1> . . .))
+	Used inside of MAPxx to help define the function part }
+(DM F:L (F)
+	 (LIST 'FUNCTION
+	       (APPEND (LIST 'LAMBDA (CADR F))
+		       (CDDR F))))
+
+{;; (DEFV <atom> <value>)
+        Equivalent to (SETQ <atom> '<value>), except that <value>
+        is not evaluated and the value returned is <atom> instead
+        of <value>.  DEFV is used by the prettyprinter  to  print
+        VALUE properties. }	
+(DF DEFV (L)
+     (SET (CAR L) (CADR L))
+     (CAR L))
+
+{;; (deflist <l> <defval> <prop>)
+        DEFLIST is useful for placing a property on a  number  of
+        atomic  symbols.   <l> should be a list of items, each of
+        which is either an atomic symbol  <a>  or  a  two-element
+        list  (<a> <val>).   Each <a> will have a <prop> property
+        placed on its property list, with a  value  of  <val>  if
+        present, or <defval> if only the atomic symbol was given.
+        <defval> is optional, with a default value of T  assumed.
+        As  an  example of the use of DEFLIST, the following will
+        give TOM and BOB ages of 15, and SAM an age of 20  (i.e.,
+        the 20 overrides the default value of 15):
+             (DEFLIST (TOM BOB (SAM 20)) 15 AGE) }
+ (DF DEFLIST
+     (%L)
+     (PROG (L DEFVAL PROP)
+	   (SETQ L (CAR %L))
+	   (COND ((NULL (CADDR %L)) (SETQ DEFVAL T)
+				    (SETQ PROP (CADR %L)))
+		 (T (SETQ DEFVAL (CADR %L)) (SETQ PROP (CADDR %L))))
+	   (MAPC (FUNCTION
+		  (LAMBDA (A)
+		   (COND ((CONSP A) (PUTPROP (CAR A) (CADR A) PROP))
+			 (T (PUTPROP A DEFVAL PROP)))))
+ 		 L)))
+
+(ALIAS 'PATOM (FUNDEF 'ATOM)) {; This might have to be different}
+
+(DE *MAX (X Y)
+    (COND [(*GREAT X Y) X]
+	  [T Y]))
+
+(DM MAX (L) (*EXPAND L '*MAX))
+
+(DE *MIN (X Y)
+    (COND [(*LESS X Y) X]
+	  [T Y]))
+
+(DM MIN (L) (*EXPAND L '*MIN))
+
+(DM MCONS (L) (*EXPAND2 (CDR L) 'CONS))
+
+(DE *EXPAND2 (L FN)
+  (COND [(NULL (CDR L)) (CAR L)]
+	[T (LIST FN (CAR L) (*EXPAND2 (CDR L) FN))]))
+
+(DEFV ^H NIL)
+
+
+(DE MEMCDR (%X% %Y%)
+  (PROG NIL
+     L1 (COND [(EQ %X% (CDR %Y%)) (RETURN T)] [(EQ %X% %Y%) (RETURN NIL)])
+	(SETQ %X% (CDR %X%))
+	(GO L1)))
+
+(DEFV %PREVFN% NIL)
+
+(DEFV $%DOTFLG NIL)
+
+(DE ASSOC/# (A B)
+  (PROG NIL
+     L1 (COND [(NULL B) (RETURN NIL)] [(EQUAL A (CAAR B)) (RETURN (CAR B))])
+	(SETQ B (CDR B))
+	(GO L1)))
+
+(ALIAS 'ASSOC-EQUAL 'ASSOC/#)
+
+(DE PRINTLEV  ($%X $%N) (TERPRI) (PRINLEV $%X $%N) $%X)
+
+(DE PRINLEV ($%X $%N)
+  {;; PRINLEV now uses PRINA so atomic symbols aren't broken over lines;
+      Printing resumes in column PRINLEV of the next line}
+  (COND [(PATOM $%X) (PRINA $%X PRINLEV)]
+	[(EQ %PREVFN% $%X) (PRINAC '"\#\" PRINLEV)]
+	[(AND [NULL COMMENTFLG]
+	      [NULL $%DOTFLG]
+	      [LITATOM (CAR $%X)]
+	      [GET (CAR $%X) 'COMMENT])
+	 (PRINAC '"*COMMENT*" PRINLEV)]
+	[(EQ $%N 0.) (PRINAC '& PRINLEV)]
+	[T (PROG ($%KK $%CL)
+		 (AND [*LESS (CHRCT) 12.]
+		      [TAB PRINLEV])
+		 (PRINC (COND [$%DOTFLG (SETQ $%DOTFLG NIL) '"... "] [T '"("]))
+		 (PRINLEV (CAR $%X) (SUB1 $%N))
+		 (SETQ $%KK $%X)
+	      LP (COND [(MEMCDR $%X $%KK)
+			(COND [$%CL (PRINAC '" ...]" PRINLEV) (RETURN NIL)]
+			      [T (SETQ $%CL T)])])
+		 (SETQ $%KK (CDR $%KK))
+		 (COND [(NULL $%KK) (TYOA 41. PRINLEV) (RETURN NIL)]
+		       [(PATOM $%KK)
+			(PRINAC '" . " PRINLEV)
+			(PRINA $%KK PRINLEV)
+			(TYOA 41. PRINLEV)
+			(RETURN NIL)])
+		 (SPACES 1. PRINLEV)
+		 (COND [(NOT (PATOM (CAR $%KK)))
+			(PRINLEV (CAR $%KK) (SUB1 $%N))]
+		       [T (PRINA (CAR $%KK) PRINLEV)])
+		 (GO LP))]))
+
+(DEFV PRINLEV 6.)
+
+(DE LSUBST (X Y Z)
+  (COND [(NULL Z) NIL]
+	[(PATOM Z) (COND [(EQ Y Z) X] [T Z])]
+	[(EQUAL Y (CAR Z)) (NCONC (COPY X) (LSUBST X Y (CDR Z)))]
+	[T (CONS (LSUBST X Y (CAR Z)) (LSUBST X Y (CDR Z)))]))
+
+(DE SUBLIS (ALST EXPR) (COND [ALST (SUBPR EXPR ALST NIL)] [T EXPR]))
+
+(DE SUBPAIR (OLD NEW EXPR)
+  (COND [OLD (SUBPR EXPR OLD (OR NEW '[NIL]))] [T EXPR]))
+
+(DE SUBPR (EXPR L1 L2)
+  (PROG (D A)
+	(COND [(ATOM EXPR) (GO LP)]
+	      [(SETQ D (CDR EXPR)) (SETQ D (SUBPR D L1 L2))])
+	(SETQ A (SUBPR (CAR EXPR) L1 L2))
+	(RETURN (COND [(OR [NEQ A (CAR EXPR)] [NEQ D (CDR EXPR)]) (CONS A D)]
+		      [T EXPR]))
+     LP (COND [(NULL L1) (RETURN EXPR)]
+	      [L2 (COND [(EQ EXPR (CAR L1)) (RETURN (CAR L2))])]
+	      [T (COND [(EQ EXPR (CAAR L1)) (RETURN (CDAR L1))])])
+	(SETQ L1 (CDR L1))
+	(AND L2 [SETQ L2 (OR [CDR L2] '[NIL])])
+	(GO LP)))
+
+(DE LINEREAD (NULLOK)
+  (READCONTEXT
+    (PROG (LINE CH)
+ We come here between objects.  Done if we have something or we don't
+ need anything, and we are at the end of line
+     LOOP (AND (OR LINE NULLOK) (MEMQ (MODCHR (SETQ CH (PEEKC))) '(12 15))
+	       (TYI)
+	       (OR (NEQ CH 15Q) (TYI))
+	       (RETURN LINE))
+ Skip spaces, close paren, comma.  We must do this explicitly rather
+ than allowing READ to do it, since otherwise we might go into READ
+ when there is nothing there to read and when the syntax of LINEREAD
+ would not otherwise require something to be there.
+   SPLOOP (AND (MEMQ (MODCHR (PEEKC)) '(3 5 7 11)) (TYI) (GO SPLOOP))
+ If we are now at the end of line, we gobble the end of line and go
+ back to see whether anything more is needed
+	  (AND (MEMQ (MODCHR (SETQ CH (PEEKC))) '(12 15))
+	       (TYI)
+	       (OR (NEQ CH 15Q) (TYI))
+	       (GO LOOP))
+ Here when there is something non-trivial here.  Read it and then
+ see if more is needed
+	  (SETQ LINE (NCONC LINE (NCONS (READ))))
+ Have to gobble trailing ) and ] or extra CRLF is needed
+CLLOOP	  (AND (MEMQ (MODCHR (PEEKC)) '(3 5)) (TYI) (GO CLLOOP))
+	  (GO LOOP))))
+
+(PROG1 NIL (ALIAS 'READL 'LINEREAD))
+
+(DE DSUBST (X Y Z)
+  (PROG (B)
+	(COND [(EQ Y (SETQ B Z)) (RETURN (COPY X))])
+     LP (COND [(PATOM Z) (RETURN B)]
+	      [(COND [(LITATOM Y) (EQ Y (CAR Z))] [T (EQUAL Y (CAR Z))])
+	       (RPLACA Z (COPY X))]
+	      [T (DSUBST X Y (CAR Z))])
+	(COND [(AND Y [EQ Y (CDR Z)]) (RPLACD Z (COPY X)) (RETURN B)])
+	(SETQ Z (CDR Z))
+	(GO LP)))
+
+(DE RETFROM (FUN VAL)
+  (COND [(SETQ FUN (STKSRCH FUN (SPDLPT) NIL)) (OUTVAL FUN VAL)]
+	[T (ERROR (LIST FUN '"NO EVAL BLIP - RETFROM"))]))
+
+(DE SUBST (X Y S)
+  (COND [(EQUAL Y S) X]
+	[(ATOM S) S]
+	[T (CONS (SUBST X Y (CAR S)) (SUBST X Y (CDR S)))]))
+
+(DE COPY (X) (SUBST 0. 0. X))
+
+(DE ENTER (V L) (COND [(MEMBFN V L) L] [T (CONS V L)]))
+
+(DEFV MEMBFN MEMBER)
+
+
+(DE INSERT (X L COMPAREFN NODUPS)
+  {;; INSERT uses a binary search to insert X into L; The INSERT MERGE and SORT
+      routines were copied virtually unchanged from the CMU LISPX package}
+  (COND
+   [(NULL L) (LIST X)]
+   [(ATOM L) (ERROR (LIST L '"CAN'T INSERT INTO ATOM"))]
+   [T (AND [NULL COMPAREFN] [SETQ COMPAREFN 'LEXORDER])
+      (PROG (L1 N N1 Y)
+	    (SETQ L1 L)
+	    (SETQ N (LENGTH L))
+	  A (SETQ N1 (*QUO (ADD1 N) 2.))
+	    (SETQ Y (FNTH L1 N1))
+	    (COND [(*LESS N 3.)
+		   (COND [(COMPAREFN X (CAR Y))
+			  (COND [(NOT (AND NODUPS [EQUAL X (CAR Y)]))
+				 (RPLACD Y (CONS (CAR Y) (CDR Y)))
+				 (RPLACA Y X)])]
+			 [(EQ N 1.) (RPLACD Y (CONS X (CDR Y)))]
+			 [(COMPAREFN X (CADR Y))
+			  (COND [(NOT (AND NODUPS [EQUAL X (CADR Y)]))
+				 (RPLACD (CDR Y) (CONS (CADR Y) (CDDR Y)))
+				 (RPLACA (CDR Y) X)])]
+			 [T (RPLACD (CDR Y) (CONS X (CDDR Y)))])]
+		  [(COMPAREFN X (CAR Y))
+		   (COND [(NOT (AND NODUPS [EQUAL X (CAR Y)]))
+			  (SETQ N (SUB1 N1))
+			  (GO A)])]
+		  [T (SETQ L1 (CDR Y)) (SETQ N (*DIF N N1)) (GO A)]))
+      L]))
+
+(DE MERGE (X Y COMPAREFN NODUPS)
+  (PROG (U Z)
+	(SETQ Z (NCONS NIL))
+	(AND [NULL COMPAREFN] [SETQ COMPAREFN 'LEXORDER])
+      A (COND [(NULL X) (GO B)]
+	      [(NULL Y) (SETQ Y X) (GO B)]
+	      [(COMPAREFN (CAR X) (CAR Y)) (SETQ U (CAR X)) (SETQ X (CDR X))]
+	      [T (SETQ U (CAR Y)) (SETQ Y (CDR Y))])
+	(COND [(OR [NOT NODUPS] [NOT (EQUAL (CADR Z) U)]) (TCONC Z U)])
+	(GO A)
+      B (COND [(NULL Y) (RETURN (CAR Z))]
+	      [T (COND [(OR [NOT NODUPS] [NOT (EQUAL (CADR Z) (CAR Y))])
+			(TCONC Z (CAR Y))])
+		 (SETQ Y (CDR Y))
+		 (GO B)])))
+
+(DE SORT (X COMPAREFN NODUPS)
+  (PROG (Z)
+	(COND [(ATOM X) (RETURN X)] [T (SETQ Z (NCONS (CAR X)))])
+	(AND [NULL COMPAREFN] [SETQ COMPAREFN 'LEXORDER])
+      A (COND [(NULL (SETQ X (CDR X))) (RETURN Z)]
+	      [T (INSERT (CAR X) Z COMPAREFN NODUPS) (GO A)])))
+
+{;; (RPTQ '<n> <e1> ...)
+        Equivalent to:
+             (DO FOR RPTN RPT '<n> <e1> . . .) }
+(DF RPTQ (%X) (PROG (RPTN %UPBND %RETVAL)
+		    (SETQ RPTN 1)
+		    (SETQ %UPBND (EVAL (CAR %X)))
+		    (SETQ %RETVAL NIL)
+	LOOP	    (COND ((*LESS %UPBND RPTN) (RETURN %RETVAL)))
+		    (SETQ %RETVAL (APPLY (FUNCTION PROGN) (CDR %X)))
+		    (SETQ RPTN (*PLUS RPTN 1))
+		    (GO LOOP)))
+
+{;; Here is the real code}
+
+{;; (MSG <i1> ...) -->  NIL
+        MSG provides  a  general  message-printing  facility  for
+        LISP.   Each  <i>  is  an  instruction  which  provides a
+        specific formatting capability:
+
+             "<string>"   Print <string> using PRINAC
+             +<number>    Space <number> (gt 0) spaces
+             (T '<n>)     Tab to position <n>
+             T            Move to new line
+             -<number>    Print <number> blank lines
+             0            Get to start of line
+             (E <expr>)   Evaluate <expr>
+             other        Eval and print using PRINA
+
+        As an example of the use of MSG, consider the following:
+
+             (MSG 0 "Value of X is:" 5 X T)
+
+        which is equivalent to:
+
+             (PROGN (LINES 0)
+                    (PRINAC '"Value of X is:")
+                    (SPACES 5)
+                    (PRINA X)
+                    (TERPRI))
+
+        Note that MSG prints the desired message on the currently
+        selected output device.  MSG returns NIL, and is compiled
+        in-line. }
+
+(DF MSG (%L)
+  (MAPC (FUNCTION
+	 (LAMBDA (I)
+	  (COND [(EQ I T) (TERPRI)]
+		[(NUMBERP I)
+		 (COND [(*LESS I 1.) (LINES (MINUS I))] [T (SPACES I)])]
+		[(STRINGP I) (PRINAC I)]
+		[(AND [CONSP I] [EQ (CAR I) 'E]) (EVAL (CADR I))]
+		[(AND [CONSP I] [EQ (CAR I) 'T]) (TAB (EVAL (CADR I)))]
+		[(AND [CONSP I] [EQ (CAR I) 'C]) (PRINC (EVAL (CADR I)))]
+		[T (PRINA (EVAL I))])))
+	%L))
+
+{;; (TTYMSG <I1> ...) --> NIL
+        Equivalent to
+
+             (TTYOUT (TALK) (MSG <I1> <I2> . . .))
+
+        That is, TTYMSG is identical to MSG, except printed output is
+        directed to the terminal instead of the currently selected
+        output device.  To insure that the message will appear on the
+        terminal even if ^O has been struck, a talk is performed before
+        printing (not done).  TTYMSG is compiled in-line. }
+
+(DM TTYMSG (%L)
+   (LIST 'WITHOUT NIL (CONS 'MSG (CDR %L))))
+
+{;; (tab n) --> NIL
+             TAB tabs to position N on the  output  line  doing a
+             TERPRI  if the  current  position is already past N. 
+             Note should be  taken  that TAB outputs  spaces only
+             when necessary and outputs tab characters otherwise.  }
+(DE TAB (N)
+     (PROG NIL
+      (COND [(*GREAT (CHRPOS) N) (TERPRI)])
+      L1
+      (COND [(*GREAT (*DIF N (CHRPOS)) 7)
+	     (TYO 11Q)
+	     (GO L1)])
+      (RPTQ (*DIF N (CHRPOS))
+	    (TYO 40Q))))
+
+(DE MAKEFOOFNS (FILE)
+      (READLIST (NCONC (EXPLODEC (JFNS FILE 001000000000Q)) '(F N S))))
+
+(DF DSKOUT (%%L)
+    (PROG (%DEV %CHAN %FNAME *NOPOINT PP)
+	  (SETQ *NOPOINT *NOPOINTDSK)
+	  (AND [SETQ PP DSKOUT] [LINES 0.])
+	  (COND [(%DEVP (SETQ %DEV (CAR %%L))) (SETQ %%L (CDR %%L))])
+	  (SETQ %FNAME (CAR %%L))
+	  (SETQ %DEV (OUTC (SETQ %CHAN (APPLY 'OUTPUT
+				 (COND [%DEV (LIST (GENSYM) %DEV %FNAME)]
+				       [T (LIST (GENSYM) %FNAME)])) NIL)))
+	  (LINELENGTH DSKLENGTH)
+	  (COND [(NULL (SETQ %%L (CDR %%L)))
+		 (SETQ %FNAME (MAKEFOOFNS (CDR (ASSOC %CHAN UCICHANNELS))))
+		 (SETQ %%L (LIST %FNAME))
+		 (COND [(NOT (BOUNDP %FNAME))
+			(SET %FNAME
+			    (APPEND (SORT (APPEND ALLVALS ALLFNS ALLSTRS)
+					   NIL T)))])])
+       L1 (COND [(LITATOM (CAR %%L))
+		 (EVAL (LIST 'PPL (CAR %%L)))
+		 (PRINT (LIST 'NOCOMPILE (LIST 'DEFV (CAR %%L)
+						(EVAL (CAR %%L)))))]
+		[T (EVAL (CAR %%L))])
+	  (AND [SETQ %%L (CDR %%L)] [GO L1])
+	  (OUTC %DEV T)
+	  (AND DSKOUT [LINES 0.])
+	  (RETURN '/F/i/l/e-D/u/m/p/e/d)))
+
+(DE %FILEASSOC (FILE ALIST)
+    (COND ((NULL ALIST) NIL)
+	  ((EQSTR FILE (JFNS (CAAR ALIST)001000000000Q))
+	   (CAR ALIST))
+	  (T (%FILEASSOC FILE (CDR ALIST)))))
+
+(DF SAVEF (%%L)
+ (WITH (PAIR)
+  (SETQ %%L (FILEARGS %%L))
+  (COND ((NULL %%L)
+	 (MAPC '%SAVEF (FILES?))
+	 (MAPC (F:L (SAVETYPE) (SET (CADR SAVETYPE) NIL)) ALLSAVE))
+	((SETQ PAIR (%FILEASSOC (JFNS (CAR %%L) 001000000000Q) ALLFILES))
+	 (RPLACA PAIR (CAR %%L))
+	 (%SAVEF PAIR))
+	(T (ERROR "SAVEF - unknown file")))))
+
+(DE %SAVEF (%%FILEPAIR)
+    (PROG (%CHAN *NOPOINT PP)
+	  (SETQ *NOPOINT *NOPOINTDSK)
+	  (AND [SETQ PP DSKOUT] [LINES 0.])
+	  (COND ((SETQ %CHAN(OPENF (CAR %%FILEPAIR) '(NEWVERSION OUT ERROR))))
+		((SETQ %CHAN (OPENF (JFNS (CAR %%FILEPAIR) 001100000001Q)
+				   '(NEWVERSION OUT ERROR)))
+		 (TTYMSG 0 "[Unable to open " (CAR %%FILEPAIR) ", using "
+			 (JFNS %CHAN 111100000001Q) "]" T)
+		 (RPLACA %%FILEPAIR (JFNS %CHAN 111100000001Q)))
+		(T (TTYMSG 0 (CAR %%FILEPAIR))
+		   (ERROR "Unable to open file")))
+	  (WITHOUT T %CHAN
+	      (LINELENGTH DSKLENGTH)
+              (EVAL (LIST 'PPL (CDR %%FILEPAIR))))
+	  (AND DSKOUT [LINES 0.])
+	  (RETURN '/F/i/l/e-D/u/m/p/e/d)))
+
+(DE FILES? NIL
+  (WITH (%FILES %FILE PAIR SEENHEADER)  
+    (MAPC (F:L (SAVETYPE)
+	  (MAPC (F:L (ITEM)
+		(COND ((SETQ %FILE
+			  (SOME (F:L (FILEPAIR)
+			     ((CADDR SAVETYPE) ITEM (EVAL (CDR FILEPAIR))))
+			   ALLFILES))
+		       (OR (MEMBER (CAR %FILE) %FILES)
+			   (SETQ %FILES (CONS (CAR %FILE) %FILES))))
+		      ((EQ (LENGTH ALLFILES) 1)
+		       (SET (CDAR ALLFILES)
+			    ((CADDDR SAVETYPE) ITEM (EVAL (CDAR ALLFILES))))
+		       (OR (MEMBER (CAR ALLFILES) %FILES)
+			   (SETQ %FILES (CONS (CAR ALLFILES) %FILES))))
+		      (T (SETQ %FILE NIL)
+			 (OR SEENHEADER
+			     (TTYMSG 0 "Type file names for each object, ? for help")
+			     (SETQ SEENHEADER T))
+			 (DO WHILE (NOT %FILE)
+			     (TTYMSG 0 (CAR SAVETYPE) " "ITEM "? ")
+			     (COND ((EQ (SETQ %FILE (READ)) '/?)
+				    (SETQ %FILE NIL)
+				    (TTYMSG 0
+"Type" T
+"  - existing files: just the name part.  (directory, extension, version" T
+"        are not needed to match existing files.)" T
+"  - new files: full file spec.  (asks for confirmation.)" T
+"  - NIL - ignore this item" T
+"Here are the files we know about: " T)
+				    (MAPC (F:L (X) (TTYMSG (CAR X) T))
+					  ALLFILES))
+				   ((NULL %FILE))
+				   ((NOT (OR (LITATOM %FILE)
+					     (STRINGP %FILE)
+					     (AND (CONSP %FILE)
+						  (LITATOM (CAR %FILE))
+						  (LITATOM (CDR %FILE))
+						  (SETQ %FILE
+						      (STCONCAT (CAR %FILE)
+								"."
+							      (CDR %FILE))))))
+			 	    (SETQ %FILE NIL)
+				    (TTYMSG 0 "% Illegal file name" T))
+				   ((SETQ PAIR (%FILEASSOC %FILE ALLFILES))
+				    (SET (CDR PAIR)
+				         ((CADDDR SAVETYPE) ITEM
+					  (EVAL (CDR PAIR))))
+				    (OR (MEMBER PAIR %FILES)
+					(SETQ %FILES (CONS PAIR %FILES))))
+				   ((PROGN
+				     (TTYMSG 0 "Unknown file - create it? ")
+				     (NOT (MEMQ (READ) '(N NO NIL))))
+				    (SETQ PAIR (CONS %FILE(MAKEFOOFNS %FILE)))
+				    (SETQ ALLFILES (CONS PAIR ALLFILES))
+				    (SETQ %FILES (CONS PAIR NIL))
+				    (SET (CDR PAIR)
+					 ((CADDDR SAVETYPE) ITEM NIL)))
+				   (T (SETQ %FILE NIL)))))))
+		(EVAL (CADR SAVETYPE))))
+          ALLSAVE)
+    %FILES))
+
+
+(DF NEWFILE (F) (SETQ F (FILEARGS F))
+		(SETQ ALLFILES (CONS (CONS (JFNS (CAR F) 111100000001Q)
+				           (MAKEFOOFNS (CAR F)))
+				     ALLFILES))
+		(SET (CDAR ALLFILES) NIL))
+
+(DEFV ALLFILES NIL)
+
+(DEFV ALLSAVE ((FUNCTION ALLFNS %FNSAVETEST %FNADDTOLIST)
+	       (VALUE ALLVALS %VALSAVETEST %VALADDTOLIST)
+	       (STRUCTURE ALLSTRS %STSAVETEST %STADDTOLIST)))
+
+(DE %FNSAVETEST (FN LIST) (%FNUNION1 (LIST 'F: FN) LIST))
+
+(DE %FNADDTOLIST (FN LIST) (NCONC1 LIST (LIST 'F: FN)))
+
+(DE %VALSAVETEST (VAL LIST) (%FNUNION1 (LIST 'V: VAL) LIST))
+
+(DE %VALADDTOLIST (VAL LIST) (NCONC1 LIST (LIST 'V: VAL)))
+
+(DE %STSAVETEST (VAL LIST) (%FNUNION1 (LIST 'ST: VAL) LIST))
+
+(DE %STADDTOLIST (VAL LIST) (NCONC1 LIST (LIST 'ST: VAL)))
+
+(NILL %FNUNION1 is used to test whether a new prettyprint command is
+      is duplicate of an old;  It is more or less MEMBER, however
+      if an item in OLD is (MBD: ftn x1 x2  etc) then the Xi are
+      also tested)
+
+[DE %FNUNION1 (NEWONE OLD)
+   (COND ((NULL OLD) NIL)
+	 ((EQUAL NEWONE (CAR OLD)) T)
+	 ([AND (EQ [CAR (CONSP (CAR OLD] 'MBD:) 
+	       (%FNUNION1 NEWONE (CDDAR OLD]
+	  T)
+	 (T (%FNUNION1 NEWONE (CDR OLD]
+
+
+(DEFV DSKOUT T)
+
+(DEFV *NOPOINTDSK NIL)
+
+(DEFV DSKLENGTH 80.)
+
+(DE %DEVP (X)
+  (OR [EQ (ANTHCHAR X -1.) 58.] [AND [CONSP X] [CONSP (CDR X)]]))
+
+(DE DIR (SPEC)
+ (PROG (L CH)
+       (OR SPEC [SETQ SPEC "*.*.*"])
+       (SETQ CH (OPENF SPEC '(OLD ERROR WILD)))
+       (OR CH [RETURN NIL])
+  LOOP (SETQ L (TCONC L (JFNS CH NIL)))
+       (AND [NEXTF CH] [GO LOOP])
+       (RETURN (CAR L))))
+
+
+[DE LOOKUP (DEV NAME)
+ ((LAMBDA (CH)
+   (COND [(NULL NAME) (SETQ NAME DEV) (SETQ DEV NIL)])
+   (COND [(NULL DEV)]
+	 [(CONSP DEV) (SETQ DEV (STCONCAT '< (CAR DEV) (CADR DEV) '>))]
+	 [(AND [LITATOM DEV] [EQ (NTHCHAR DEV -1.) ':])]
+	 [T (ERROR (LIST DEV "Illegal device name - LOOKUP"))])
+   (COND [(CONSP NAME) (SETQ NAME (STCONCAT (CAR NAME) '/. (CDR NAME)))])
+   (COND [DEV (SETQ NAME (STCONCAT DEV NAME))])
+   (SETQ CH (OPENF NAME '(OLD WILD ERROR)))
+   (SETQ NAME NIL)
+   (AND CH [SETQ NAME (JFNS CH)])
+   (AND CH [CLOSEF CH])
+   NAME)
+  NIL)]
+
+(DM WITH (L)
+ (CONS (MCONS 'LAMBDA
+	      (MAPCAR (F:L (V) (COND [(ATOM V) V] [T (CAR V)])) (CADR L))
+	      (CDDR L))
+       (MAPCAR (F:L (V) (COND [(ATOM V) NIL] [T (CADR V)])) (CADR L))))
+
+
+(DM PUSH (L) (LIST 'SETQ (CADR L) (LIST 'CONS (CADDR L) (CADR L))))
+
+(DM POP (L)
+  (LIST 'PROG1
+	(LIST 'CAR (CADR L))
+	(LIST 'SETQ (CADR L) (LIST 'CDR (CADR L)))))
+
+(DM INCR (L) (LIST 'SETQ (CADR L) (LIST 'ADD1 (CADR L))))
+
+(DM DECR (L) (LIST 'SETQ (CADR L) (LIST 'SUB1 (CADR L))))
+
+(DM NOTANY (L) (LIST 'NOT (CONS 'SOME (CDR L))))
+
+(DM NOTEVERY (L) (LIST 'NOT (CONS 'EVERY (CDR L))))
+
+(DM DO (L) (%DO (CDR L)))
+
+(DE %DO (%L)
+  (SELECTQ [CAR %L]
+	   [(UNTIL WHILE)
+	    (SUBPAIR '(X Y)
+		     (LIST (COND [(EQ (CAR %L) 'UNTIL) (CADR %L)]
+				 [T (LIST 'NOT (CADR %L))])
+			   (CDDR %L))
+		     '(PROG (DO!V)
+		       DO!L (AND X [RETURN DO!V])
+			    (SETQ DO!V (PROGN . Y))
+			    (GO DO!L)))]
+	   [FOR (SELECTQ [CADDR %L]
+			 [(IN ON)
+			  (SUBPAIR '(X Y L E)
+				   (LIST (CADR %L)
+					 (CDDDDR %L)
+					 (CADDDR %L)
+					 (COND [(EQ (CADDR %L) 'IN) '(CAR DO!L)]
+					       [T 'DO!L]))
+				   '((LAMBDA (DO!L)
+				      (PROG (X DO!V)
+				       DO!L (AND [NULL DO!L] [RETURN DO!V])
+					    (SETQ X E)
+					    (SETQ DO!L (CDR DO!L))
+					    (SETQ DO!V (PROGN . Y))
+					    (GO DO!L)))
+				     L))]
+			 [RPT (SUBPAIR '(X Y E)
+				       (LIST (CADR %L) (CDDDDR %L) (CADDDR %L))
+				       '((LAMBDA (X DO!L)
+					  (PROG (DO!V)
+					   DO!L (AND [*GREAT X DO!L]
+						     [RETURN DO!V])
+						(SETQ DO!V (PROGN . Y))
+						(SETQ X (ADD1 X))
+						(GO DO!L)))
+					 1. 
+					 E))]
+			 [ERROR '"BAD FORMAT - DO"])]
+	   [CONS 'PROGN %L]))
+
+{;; Replaces existing}
+
+(DEFV SAVE T)
+
+(DF SAVE (X)
+  (PROG (D)
+	(COND [(SETQ D (FUNDEF (SETQ X (CAR X))))
+	       (UNBREAK! X)
+	       (PUTPROP X D 'SAVE)
+	       (RETURN X)])))
+
+(DE %DEFINE (L P)
+  (PROG (X V R)
+	(COND [(OR [*LESS (LENGTH L) 3.]
+		   [NOT (LITATOM (SETQ X (CAR L)))]
+		   [AND [NOT (CONSP (SETQ V (CADR L)))]
+			[NOT (AND [LITATOM V] [EQ P 'EXPR])]])
+	       (ERROR '"ILLEGAL FORMAT - DE, DF, DM")])
+	(SETQ L (CDDR L))
+	(SETQ R
+	      (COND [(FUNDEF X)
+		     (COND [SAVE (APPLY/# 'SAVE (NCONS X))]
+			   [T (UNBREAK! X)])
+		     (LIST X 'Redefined)]
+		    [T X]))
+	(ALIAS X (MCONS P 'LAMBDA (CONS V L)))
+	(SETQ ALLFNS (ENTER X ALLFNS))
+	(SETQ LASTWORD X)
+	(RETURN R)))
+
+(DF DE (L) (%DEFINE L 'EXPR))
+
+(DF DF (L) (%DEFINE L 'FEXPR))
+
+(DF DM (L) (%DEFINE L 'MACRO))
+
+(DF DV (L)
+  (SET (CAR L) (CADR L))
+  (SETQ ALLVALS (ENTER (CAR L) ALLVALS))
+  (SETQ EDITV (CAR L)))
+
+
+
+(DF UNSAVE (X)
+  (PROG (D)
+	(COND [(SETQ D (GET (SETQ X (CAR X)) 'SAVE))
+	       (UNBREAK! X)
+	       (ALIAS X D)
+	       (REMPROP X 'SAVE)
+	       (RETURN X)])))
+
+(DE INP (X Y)
+  (COND [(EQ X Y) T]
+	[(ATOM Y) NIL]
+	[(INP X (CAR Y)) T]
+	[T (INP X (CDR Y))]))
+
+{;; New list-manipulation and property list functions:}
+
+(DE ATTACH (X Y)
+  (COND [(CONSP Y) (RPLACD Y (CONS (CAR Y) (CDR Y))) (RPLACA Y X)]
+	[(NULL Y) (LIST X)]
+	[T (ERROR (LIST Y '"CAN'T ATTACH TO ATOM"))]))
+
+(DE ENTER (V L) (COND [(MEMBFN V L) L] [T (CONS V L)]))
+
+(DE NCONC1 (X Y) (NCONC X (LIST Y)))
+
+(DE ADDPROP (A V I) (PUTPROP A (ENTER V (GET A I)) I))
+
+(DE PUTLIST (L V I) (MAPC (FUNCTION (LAMBDA (A) (PUTPROP A V I))) L))
+
+(DE REMLIST (L I) (MAPC (FUNCTION (LAMBDA (A) (REMPROP A I))) L))
+
+(DE REMPROPS (A L) (MAPC (FUNCTION (LAMBDA (I) (REMPROP A I))) L))
+
+(DE UNION (L1 L2)
+  (PROG (A Z)
+   LOOP (COND [(NULL L1) (RETURN (OR A L2))]
+	      [(MEMBFN (CAR L1) (OR A L2))]
+	      [(NULL A) (SETQ A (SETQ Z (CONS (CAR L1) L2)))]
+	      [T (SETQ Z (CDR (RPLACD Z (CONS (CAR L1) L2))))])
+	(SETQ L1 (CDR L1))
+	(GO LOOP)))
+
+(DE INTERSECTION (L1 L2)
+  (PROG (A Z)
+   LOOP (COND [(NULL L1) (RETURN A)]
+	      [(NOT (MEMBFN (CAR L1) L2))]
+	      [(NULL A) (SETQ A (SETQ Z (NCONS (CAR L1))))]
+	      [T (SETQ Z (CDR (RPLACD Z (NCONS (CAR L1)))))])
+	(SETQ L1 (CDR L1))
+	(GO LOOP)))
+
+{;; New functions on strings:}
+
+(DE SUBSTRING (STR S E)
+  (PROG (LEN NEWSTR)
+	(SETQ LEN (LENGTH (SETQ NEWSTR (AEXPLODEC STR))))
+	(SETQ S (%SUBSTR S 1. 1. LEN))
+	(SETQ E (%SUBSTR E LEN S LEN))
+	(COND [(NEQ E LEN)
+	       (SETQ E (FNTH NEWSTR E))
+	       (RPLACD E NIL)]
+	      [T (SETQ E (LAST NEWSTR))])
+	(RPLACD E '(34.))
+	(RETURN (PROG1 (READLIST (SETQ S (CONS 34. (FNTH NEWSTR S))))
+		       (RPLACD E NIL)))))
+
+(DE %SUBSTR (V I L H)
+  (COND [(NOT (NUMBERP V)) (SETQ V I)]
+	[(MINUSP V) (SETQ V (ADD1 (*PLUS H V)))])
+  (COND [(OR [*LESS V L] [*GREAT V H]) (ERROR '"STRING TOO SHORT - SUBSTRING")])
+  V)
+
+(DE CONCAT (X Y)
+   (READLIST (CONS 34. (NCONC (AEXPLODEC X) (AEXPLODEC Y) (LIST 34.)))))
+
+{;; New mapping functions:}
+
+(DE MAPATOMS (%MATOM%FN)
+  (MAPC (FUNCTION (LAMBDA (%A) (MAPC %MATOM%FN %A))) OBLIST))
+
+
+{;; New functions for controlling evaluation:}
+
+(DF THROW (L)
+  (SETQ THROW (EVAL (CAR L)))
+  (SETQ CATCH (AND [CDR L] [CADR L]))
+  (ERR 'THROW))
+
+(DF CATCH (L)
+  (COND [(OR [%CATCH (ERRSET (EVAL (CAR L)))] [NULL (SETQ L (CDR L))])
+	 THROW]
+	[(ATOM (CAR L)) (COND [(EQ CATCH (CAR L)) THROW] [T (ERR 'THROW)])]
+	[T (APPLY/# 'SELECTQ (CONS 'CATCH (APPEND L '((ERR 'THROW)))))]))
+
+(DE %CATCH (V)
+  {;; %CATCH is called from compiled code}
+  (COND [(CONSP V) (SETQ THROW (CAR V)) T]
+	[(NEQ V 'THROW) (ERR V)]))
+
+(DF TIMER (%L)
+  (PROG (%TIME %SPEAK %GCTIME %DTIME %V)
+	(COND [%L (SETQ %TIME (TIME))
+		  (SETQ %GCTIME (GCTIME))
+		  (SETQ %DTIME (UPTIME))
+		  (SETQ %SPEAK (SPEAK))
+		  (SETQ %V (APPLY/# 'PROGN %L))]
+	      [T (SETQ %TIME %%TIME)
+		 (SETQ %GCTIME %%GCTIME)
+		 (SETQ %DTIME %%DTIME)
+		 (SETQ %SPEAK %%SPEAK)])
+	(SETQ %SPEAK (*DIF (SPEAK) %SPEAK))
+	(SETQ %TIME (*DIF (TIME) %TIME))
+	(SETQ %GCTIME (*DIF (GCTIME) %GCTIME))
+	(SETQ %DTIME (*DIF (UPTIME) %DTIME))
+	(PROG (BASE)
+	      (SETQ BASE -10.)
+	      (TTYMSG 0. %TIME " msec CPU (" %GCTIME " msec GC), " %DTIME
+		      " msec clock, " %SPEAK " words consed" T))
+	(COND [(NULL %L)
+	       (SETQ %%TIME (TIME))
+	       (SETQ %%GCTIME (GCTIME))
+	       (SETQ %%DTIME (UPTIME))
+	       (SETQ %%SPEAK (SPEAK))])
+	(RETURN %V)))
+
+(DEFV %%TIME 0.)
+
+(DEFV %%DTIME 0.)
+
+(DEFV %%GCTIME 0.)
+
+(DEFV %%SPEAK 0.)
+
+{;; New IO functions:}
+
+(DF GETDEF (%L)
+ {;; Fast GETDEF copied with some modifications from CMU; Scans for expressions
+     starting in column 1.  with the function a member of GETDEF and the first
+     argument a member of %L (must be space or CR following name) }
+ (PROG (%D %F %R SAWLAP %FOOFNS)
+       (COND [(%DEVP (CAR %L))
+	      (SETQ %D (CAR %L))
+	      (SETQ %L (CDR %L))
+	      (SETQ %D (INC (APPLY/# 'INPUT (LIST (GENSYM) %D (CAR %L))) NIL))]
+	     [T (SETQ %D NIL)
+		(SETQ %D (INC (APPLY/# 'INPUT (LIST (GENSYM) (CAR %L))) NIL))])
+       (SETQ %L (CDR %L))
+       (LINES 0.)
+       (SETQ %R
+	(ERRSET
+	 (PROG (%C %X %Y *RAISE)
+	       (SETQ *RAISE *RAISEDSK)
+	  LOOP (COND
+		[(OR [EQ (SETQ %C (TYI)) 10.]
+		     [EQ %C 11.]
+		     [EQ %C 12.]
+		     [EQ %C 13.])
+		 (GO LOOP)]
+		[(OR [EQ %C 40.] [EQ %C 91.])
+		 (COND [(AND [LITATOM (SETQ %X (READ))]
+			     [MEMB %X GETDEF]
+			     [LITATOM (SETQ %Y (RDNAM))]
+			     [OR [NEQ %Y (SETQ %Y (INTERN %Y))]
+				 [APPLY/# 'REMOB (NCONS %Y)]]
+			     [MEMB %Y %L]
+			     [NOT (OR [EQ (SETQ %R (TYI)) 40.] [EQ %R 91.])])
+			(UNTYI %C)
+			(UNBREAK! %Y)
+			(PRINA (EVAL (COND [(EQ %X 'DEFPROP)
+					    (%XDEFPROP (MCONS %X %Y (READ)))]
+					   [(MCONS %X %Y (READ))])))
+			(SPACES 1.)
+			(SETQ %F T)
+			(AND [EQ %X 'LAP] [SETQ SAWLAP T])])])
+	       (COND [(NEQ (TYI) 10.)  {; Give him a comment char for fast
+					  ignore of rest of line }
+		      (UNTYI 25.)])
+	       (GO LOOP))
+	 ERRORX))
+       (LINES 0.)
+       (INC %D T)
+       (AND SAWLAP [%CHKUNDEFS])
+       (AND [NEQ %R '/$EOF$] [ERR %R])
+       (RETURN (COND [%F 'F/u/n/c/t/i/o/n/s-/l/o/a/d/e/d]
+		     [T 'N/o/n/e-/f/o/u/n/d]))))
+
+(DEFV GETDEF (DEFPROP DEFP DEFV SETQ DE DF DM ELAP DRM DSM))
+
+(DF TYPE (%F)
+  (SETQ %F (INC (APPLY/# 'INPUT (CONS (GENSYM) %F)) NIL))
+  (LINES 0.)
+  (ERRSET (PROG NIL LOOP (TYO (TYI)) (GO LOOP)))
+  (LINES 0.)
+  (INC %F T)
+  (IASCII 0.))
+
+(DF DEFP (L)
+  (PROG (AT1 AT2 PROPS VAL RET)
+    (SETQ AT1 (CAR L))
+    (SETQ AT2 (CADR L))
+    (SETQ PROPS (COND ((ATOM (CADDR L)) (NCONS (CADDR L))) (T (CADDR L))))
+    (MAPC (F:L (P) (COND ((SETQ VAL (GET AT2 P))
+			  (SETQ RET AT1)
+			  (PUT AT1 VAL P))))
+          PROPS)
+    (RETURN RET)))
+
+(DE UGETI NIL (CURPOS (CURRENTIN)))
+
+(DE UGETO NIL (CURPOS (CURRENTOUT)))
+
+(DE USETI (POS) (SETPOS (CURRENTIN) POS))
+
+(DM TTYOUT (L) (MCONS 'WITHOUT NIL (CDR L)))
+
+(DM TTYIN (L) (MCONS 'WITHIN NIL (CDR L)))
+
+
+(DF GETSYM (L)
+ (MAPC (F:L (X)
+	    (COND [(CONSP (CAR L))
+		   (ALIAS X (MCONS (CAAR L) (PLUS (*GETSYM X) 1000000Q)
+				            (CDAR L)))]
+		  [T (PUTPROP X (*GETSYM X) (CAR L))]))
+       (CDR L)))
+ 

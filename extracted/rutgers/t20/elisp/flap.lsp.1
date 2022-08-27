@@ -1,0 +1,84 @@
+(special %code-org %foofns)
+
+| the functions for loading .FLAP files
+|  the format of the file is as follows:
+|	in ascii, the following:
+| SIZE: #of-linkwds #of-codewds
+| CONSTANTS: #of-constants <constant forms>
+| VARIABLES: #of-variables <variable names>
+| FUNCTIONS: #of-functions <function names>
+| BINARY:
+|	then binary, ie 36-bit words:
+|   666   this as the value of a word as a synchronizer
+|   #of-codewords   as a binary value this time
+| the code for the functions. the left half of each word is absolute.
+| the right half is cnnnnn octal, where c is a code:
+| c = 0 or 7  the right half is absolute, leave untouched
+     |     1  rh becomes the nnnnn'th constant
+     |     2  rh is nnnnn'th variable
+     |     3  rh is nnnnn'th function
+     |     4  rh is nnnnn'th internal entry
+     |     5  rh is addr of this word - nnnnn
+     |     6  rh is addr of this word + nnnnn
+|   minus number of words to translate
+|| The following way of defining the functions will still be supported, for
+|| benefit of old .FLAP files.  However new files have 0 here, and no list
+|| of functions to define.  Instead they put calls to %FLAP-ENTRY in the text
+|| portion of the file.  This causes definitions to occur in the same order
+|| as specified in the source.
+|   #of-fns-defined
+| a word for each fn definition:  byte (4)what (15)which (17)where
+|     what - what kind of entry point, 0-5 = expr of that many args,
+|			8 = fexpr, 9 = lexpr, 10 = macro
+|     which - index into the function table (above) for this fn
+|     where - entry point as offset past beginning of code
+
+(require "macros.lsp")
+
+(de flap (fnam)
+    (let (ftnlist %code-org %foofns %ch nconsts nwords origin x y z
+	  corg vorg )
+     (within t (openf fnam '(old in))
+	  (or (eq (read) 'size:) (flapper))
+	  (setq nconsts (read))
+	  (setq nwords (read))
+	  (setq corg (setq origin (%allocate-bps nconsts 0)))
+	  (or (eq (read) 'constants:) (flapper))
+	  (setq x (read))
+	  (rptq x (%deposit-object-pointer origin (read))
+		  (setq origin (+i origin)))
+	  (or (eq (read) 'variables:) (flapper))
+	  (setq vorg origin)
+	  (setq x (read))
+	  (rptq x (%deposit-value-reference origin (read))
+		  (setq origin (+i origin)))
+	  (or (eq (read) 'functions:) (flapper))
+	  (setq x (read))
+	  (setq ftnlist (ncons nil))
+	  (rptq x (tconc ftnlist (%function-address-block (read))))
+	  (setq ftnlist (rdhvec (car ftnlist) (makevector x) 0))
+	  (or (eq (read) 'binary:) (flapper))
+	  (setq y (curpos (currentin))))
+     (within t (openf fnam '(old in 36))
+	     (setq y (%bflap (// (+ 4 y) 5) 
+		     corg vorg ftnlist (setq %code-org
+					    (+ 1 (%allocate-bps 0 nwords))))))
+| %code-org is used by the code that actually defines the functions,
+| which is read in below.
+| Here we simulate DSKIN on the rest of the file
+     (setq %ch (openf fnam '(old in)))
+     (setpos %ch (* y 5))
+     (setq %foofns (list nil))  | needed by %readin.
+     (%readin %ch nil)
+     (closef %ch))
+    fnam)
+
+(de flapper () (error "Illicit, warped, or erroneous .FLAP file format"))
+
+| %flap-entry is used to do the actual definition of a function whose code
+|   is loaded by FLAP.  Note that it refers to %CODE-ORG globally.
+| (%flap-entry ftn offset type #args)
+
+(df %flap-entry (l) 
+  (%set-function-entry (car l) (+ %code-org (cadr l)) (caddr l) (cadddr l))
+  (car l))

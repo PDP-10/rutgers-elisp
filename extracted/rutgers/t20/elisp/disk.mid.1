@@ -1,0 +1,639 @@
+define chkquo
+	ercal quochk	termin
+
+
+
+xopenf:	push p,[0]		;place for bits to go
+	push p,[0]
+	push p,[0]
+	push p,[0]
+;check options arg type
+	jumpe o2,openfj		;none - do gtjfn
+	scons o2
+	jrst [move o1,o2
+	      perr /OPENF options must be a list/]
+;we now have a valid option list in O2
+openf1:	docar o3,o2		;o3 - current option
+	gettyp o3
+	cain w2,ty%int		;may be byte size
+	jrst opfbsz
+	camn o3,[%OLD]
+	jrst opfold
+	camn o3,[%NEW]
+	jrst opfnew
+	camn o3,[%NEWVERSION]
+	jrst opfnve
+	camn o3,[%WILD]
+	jrst opfwld
+	camn o3,[%CONTINUOUS]
+	jrst opfcnt
+	camn o3,[%UEROR]	;ERROR
+	jrst opferr
+	camn o3,[%IN]
+	jrst opfin
+	camn o3,[%OUT]
+	jrst opfout
+	camn o3,[%APPEND]
+	jrst opfapp
+	move o1,o3
+	perr /Unknown OPENF option/
+
+openf2:	docdr o2,o2		;next option
+	jumpn o2,openf1		;if any
+	jrst openfj		;none - now gtjfn
+
+;here are the option processors
+opfnew:	skipa w2,[gj%new]
+opfold:	movsi w2,(gj%old)
+	iorm w2,gtjbts
+	jrst openf2
+
+opfnve:	skipa w2,[gj%fou]
+opfwld:	movsi w2,(gj%ifg)
+	iorm w2,gtjbts
+	jrst openf2
+
+opfin:	skipa w2,[of%rd]
+opfout:	movei w2,of%wr
+	iorm w2,opfbts
+	jrst openf2
+
+opfapp:	movei w2,of%app
+	iorm w2,opfbts
+	jrst openf2
+
+opfcnt:	setom cntflg
+	jrst openf2
+
+opferr:	setom errflg
+	jrst openf2
+
+opfbsz:	move w2,o3		;move into byte size field
+	lsh w2,30.
+	iorm w2,opfbts		;and put it in OPENF
+	jrst openf2
+
+;now we have the bits set up in the stack - O1 is file list
+;Make channel and do GTJFN if needed
+openfj:	xtype o1
+	cain w2,ty%xch		;if already a channel
+	jrst openfo		;go directly to OPEN
+	scons o1		;if list
+	jrst [push q,nil	;not - treat it as singleton
+	      jrst openf3]
+	push q,o1		;save arg list
+	docar o1,o1		;get first one for now
+openf3:	call mflnam		;put name in FILNAM
+	move nil1,gtjbts	;find the gtjfn bits
+	tlo nil1,(gj%sht+gj%flg) ;standard bits
+	hrroi w2,filnam
+	gtjfn
+	 erjmp [skipn errflg
+		jrst oper
+		adjsp q,-1
+		adjsp p,-4
+		setzb nil1,o1
+		ret]
+	skipe cntflg		;if asking for continuous
+	tlo nil1,(gn%cnt)	;then set that bit
+	call makchn		;make a channel with that JFN in it
+	pop q,o2		;get back arg list
+	docdr o2,o2		;any more?
+	jumpe o2,openfo		;no - done
+	sos ch%spc(o1)		;yes - put the rest in list
+	movem o2,ch%dat(o1)
+;Open the file if called for
+openfo:	skipn opfbts		;does he want any open functions?
+	jrst openfx		;no - forget it - channel already in O1
+	hrrz nil1,ch%jfn(o1)	;get JFN
+	gtsts			;see if it is open
+	tlo nil1,(co%nrj)	;if so, close but don't release
+	tlne w2,(gs%opn)	;is it open?
+	closf			;yes - close
+	 erjmp opfer
+	hrrz nil1,ch%jfn(o1)	;get back pure jfn
+	dvchr			;see what we have
+	ldb w4,[.bp 777_18.,w2]	;device type
+	move w2,opfbts		;and openf bits
+	tlnn w2,770000		;already have byte size?
+	tlo w2,070000		;no - add in 7-bit mode
+ ;this is code to let us try simulating append with normal read/write I/O
+	caie w4,.dvdsk		;disk?
+	trnn w2,of%wr		;write specified?
+	jrst openfn		;no or yes - just go ahead
+	trnn w2,of%app		;append and no write?
+	jrst openfn		;not append - must be read and is normal
+	tro w2,of%wr		;first try to let us simulate using read/write
+	openf
+	 erjmp [trz w2,of%wr		;oh, well, try again the original way
+		hrrz nil1,ch%jfn(o1)	;get back pure jfn
+		jrst openfn]
+	jrst openfy
+ ;end of special append code
+openfn:	openf
+	 erjmp [skipn errflg
+		jrst opfer
+		adjsp p,-4
+		rljfn
+		 erjmp .+1
+		setzb nil1,o1
+		ret]
+;we now have a file open.  Do device depend initialization if needed
+;W4 contains the device type.
+openfy:	cain w4,.dvdsk		;disk?
+	call dskopn		;yes - set up for PMAP I/O
+;done - restore things
+openfx:	adjsp p,-4
+	setzb nil,nil1
+	ret
+
+
+
+
+
+;put for pmapped I/O
+dskput:	aos w3,ch%cby(o2)	;advance current byte
+	camle w3,ch%cby(o2)	;beyond end seen so far?
+	movem w3,ch%lby(o2)	;yes - update it
+	sosge ch%bct(o2)	;room in buffer?
+	 call dskadv		;no - next
+	idpb w2,ch%bpt(o2)
+	 ercal maperr
+	ret
+
+;This routine is called when we get an error upon attempting access
+; to a page.  It makes assumes that the caller uses the following
+; sequence:
+;	aos ch%cby(o2)
+;	sos ch%bct(o2)
+;	idpb/ildb w2,ch%bpt(o2)
+;	 ercal maperr
+; as it will undo the sideeffects of these operations if necessary.
+;    When a hole is found (only possible on read), we just have to set w2
+;    to zero after clearing the page.
+; But on a real error, we have to back out all the operations shown
+;	and abort the caller.
+
+maperr:	
+;for tops-20 the most likely thing here is that we tried to read a
+;  hole in the file. Tops-20 gives an ill mem read in that case. 
+;Also, it may be quota exceeded.
+;So the code comes in these pieces:
+;  diagnose it - hole in the file?
+;  if a hole, then give a zero page
+;  else, print an error message and back out of the I/O operation
+
+	sfm w4			;save flags in W4
+	tlo w4,(1B4)		;set first part done, as ILDB was interrupted
+repeat 1,<  ;This is due to a monitor bug.
+	move w3,[point 7,w3]	;do an ILDB to clear first part done
+	ildb w3,w3		;since ERCAL may leave it set
+> ;repeat 1
+	push p,w2		;save the char
+	movei nil1,400000	;see what error
+	geter
+	tlz w2,777777		;w2 _ error code
+	cain w2,iox11		;if quota error
+	jrst mapquo		;special handling
+	pop p,w2		;put back stack (don't care about char now)
+;here we check to see if the page is perhaps nonexistent in the file
+;if so, we treat it as zeros.  
+	move nil1,ch%bpt+1(o2)	;addr of core page
+	lsh nil1,-11		;convert to page
+	hrli nil1,.fhslf	;in our fork
+	rpacs
+	 erjmp maper3		;treat this as an I/O error
+;The case we are looking for is read-only access and an indirect pointer
+	tlnn w2,(pa%wt)		;if have write access, not this problem
+	tlnn w2,(pa%ind)	;if indirect too, that is it
+	jrst maper3		;write access or not indirect: normal error
+  ;here if it is a hole.  clear the page
+maper1: move w2,nil1		;b _ .fhslf,,core page no.
+	seto nil1,		;clear page
+	setz w3,		;no counts
+	pmap
+	 chkquo			;[27]
+	 erjmp maper2		;can't clear page
+	setzb nil1,w2		;return a zero byte
+	ret			;and continue as if ILDB had worked
+
+;here if is a quota error, to retry
+mapquo:	hrroi nil1,[asciz / Quota exceeded or disk full
+[Find some space, then type CONTINUE]
+/]
+	esout
+; Finally we are ready to restore to the user's context and continue,
+; if user types CONTINUE
+	pop p,w2		;restore thing to put out
+	pop p,w3		;return address
+	subi w3,2		;back to the IDPB
+	setz nil1,		;get legal again
+	haltf			;let him delete some files
+	xjrstf w3		;flags (including first part done) are in W4
+
+;here is the beginning of the true error code.
+maper2:	
+maper3:
+	sos ch%cby(o2)		;move back
+	aos ch%bct(o2)
+;the following should use ADJBP with -1, but that doesn't work in extended
+;addressing (at least in release 4)
+	ldb w3,[.bp 77_24.,ch%bpt(o2)] ;byte size
+	ldb w2,[.bp 77_30.,ch%bpt(o2)] ;offset - can't be 44, as we have just
+					;done ildb
+	add w2,w3		;move back a byte
+	dpb w2,[.bp 77_30.,ch%bpt(o2)]	;and put it back in byte pointer
+	setz nil1,
+	err \I/O error on disk file\
+
+dskeof:	sos ch%cby(o2)		;yes - don't do the advance
+	jrst eoferr		;now see if more files, etc.
+
+;get for pmapped I/O
+dskget:	aos w3,ch%cby(o2)	;advance current byte
+	camle w3,ch%lby(o2)	;beyond eof?
+	 jrst dskeof		;yes - do it
+	sosge ch%bct(o2)	;count bytes left in this buffer
+	call dskadv		;none - get new buffer
+	ildb w2,ch%bpt(o2)	;get character
+	 ercal maperr
+	move w3,ch%lts(o2)	;line no. test bit if 7 bit mode
+	tdnn w3,@ch%bpt+1(o2)	;was it a line no.?
+	ret			;no - that's all
+;currently we aren't giving the user the line number
+;	move w3,@ch%bpt(o2)	;line no. - get it
+;	movem w3,...		;save it for user
+	aos ch%bpt(o2)		;skip it
+	movei w3,5		;update currentposition
+	addm w3,ch%cby(o2)
+	movni w3,5		;note getchb already skipped one char, so
+	addb w3,ch%bct(o2)	; we only skip 5
+	jumpge w3,dskget	;now get real character
+;the context in which dskadv is valid is where we have just done sosge ch%bct,
+;and are about to do ildb.  Usually this is right, as in the subtraction of
+;5 above, 1 of the 5 is in the new block.   so that is the sosge.  we will
+;still have to do an ibp afterwards, though.  If we are further into the
+;word than the first char, we now back up, since filadv will leave us at
+;the start of the buffer (and its error handling is predicated on the
+;assumption that we are working on the first char)
+	addi w3,1		;if more than one char into new buffer
+	addm w3,ch%cby(o2)	;move back (T is negative)
+	call dskadv		;go to new buffer
+;this should be IBP, but IBP doesn't work in extended addressing
+	ildb w3,ch%bpt(o2)	;pass over first char (tab)
+	jrst dskget		;now go back for real char
+
+;pmap I/O - buffer advance and go to new page
+
+;dskadv - get to the next page when reading sequentially.  If
+; the getpage succeeds, this gives new byte ptr, count, etc., for
+; the new page.  Otherwise you are left exactly where you were before,
+; with filcby adjusted, since the caller is assumed to have
+; incremented it.
+;    W2 must be preserved, since it has the character in it
+dskadv:	move w3,ch%pag(o2)	;old page
+	addi w3,winpgs		;new page
+	call getfpg		;get page routine
+	 jrst badadv		;can't get new page
+	move w3,ch%bfs(o2)	;bytes in buffer
+	subi w3,1		;caller has done sosge
+	movem w3,ch%bct(o2)
+	move w3,ch%buf(o2)	;pointer to start of buffer
+	movem w3,ch%bpt+1(o2)
+	movei w3,44
+	dpb w3,[.bp 77_30.,ch%bpt(o2)]
+	ret
+
+badadv:	sos ch%cby(o2)		;user has done aos on this
+	err \I/O error on disk file\
+
+;getfpg - get specified page 
+;	w3 - desired page - preserved
+;	w2 - preserved
+;  returns:  w3 - requested disk page, skip if works, non-skip if not
+;    also resets 
+;	ch%pag to indicate we are on a new file page
+;    the user is assumed to adjust counts, pointers, etc., as he likes
+
+getfpg:	push p,w2
+	push p,w3
+	hrr nil1,w3		;desired page
+	hrl nil1,ch%jfn(o2)	;on this file
+	move w2,ch%buf(o2)	;address of buffer
+	lsh w2,-9.		;make page no.
+	hrli w2,400000		;current process
+	move w3,[pm%cnt\pm%rd\pm%wr\pm%pld\winpgs] ;use count, preload
+	pmap
+	 chkquo			;[27]
+	 erjmp badpag
+	pop p,w3
+	pop p,w2
+	movem w3,ch%pag(o2)	;only now can we say are on that page
+cpopj1:	aos (p)			;skip return - success
+	ret
+
+;note that badpag is called with b&c saved on stack
+badpag:	pop p,w3		;we don't change filpag, as haven't moved
+	pop p,w2
+	ret			;error return
+
+;pmap I/O - device dependent openning
+
+;Here after a file has been opened on disk
+
+;The first problem is to see whether we have enough access to the file to
+;   PMAP it.  Write-only or append-only files can't be pmapped.
+dskopn:	move nil1,ch%jfn(o1)	;let's see whether we can use PMAP'ed I/O
+	gtsts			;w2 - file status
+	move w3,opfbts		;w3 - bits saying what he wanted
+	tlne w2,(gs%opn)	;if not open, nothing we can do
+	tlnn w2,(gs%rdf)	;also if can't read, pmap is no use
+	ret			;not open or no read
+	trnn w3,of%wr\of%app	;if he wanted write or append
+	jrst dskop1		;no - read is enough
+	tlnn w2,(gs%wrf)	;we had better be able to write
+	ret			;can't - let monitor figure this out
+;If here, we know we will be able to PMAP the file
+dskop1:	movei w2,winpgs		;get this many pages
+	call getbuf		;returns address in W2
+	movem w2,ch%buf(o1)	;now set up all the fields
+	movem w2,ch%bpt+1(o1)
+	ldb w2,[.bp 77_30.,opfbts] ;get byte size
+	cain w2,0		;if not specified
+	movei w2,7		;use ascii
+	movei w3,36.		;now compute number of bytes per word
+	idiv w3,w2		;w3 - number of bytes per word
+	lsh w3,9.		;w3 - number of bytes per page
+	movem w3,ch%pgs(o1)
+	imuli w3,winpgs		;w3 - number of bytes per buffer
+	movem w3,ch%bfs(o1)
+	setzm ch%lts(o1)	;assume no line number test needed
+	cain w2,7		;if 7-bit
+	aos ch%lts(o1)		;then turn on the bit
+	lsh w2,24.		;move into byte size field in byte ptr
+	tlo w2,440040		;and make pointer to start of word, extended
+	movem w2,ch%bpt(o1)	;now we have a full byte pointer (2-word)
+	movni w2,winpgs		;set set DSKADV gives first page
+	movem w2,ch%pag(o1)
+	setom ch%bct(o1)	;no space left
+	setom ch%cby(o1)	;and no char's read
+	move w2,[codsec,,dskget] ;set up dispatches
+	movem w2,ch%get(o1)
+	move w2,[codsec,,dskput]
+	movem w2,ch%put(o1)
+	move w2,[codsec,,dskdsp]
+	movem w2,ch%dsp(o1)
+
+;here we have to split according to the sort of open being done
+	move w2,opfbts		;see what we have
+	trne w2,of%app		;special code to simulate append
+	jrst dskapp
+	trnn w2,of%rd		;special code if write-only
+	jrst dskwrt
+;read or update
+	trne w2,of%wr		;if only read
+	jrst sizefi		;and finally, use size of existing file
+
+  ;read only
+	move w2,[codsec,,errio]	;disable writing
+	movem w2,ch%put(o1)
+	move w2,[codsec,,dskrds] ;use special dispatch because of close
+	movem w2,ch%dsp(o1)
+	jrst sizefi		;and finally, use size of existing file
+
+;write only
+dskwrt:	setzm fillby(b)		;file is now zero length
+	ret			;that's it
+
+;append simulation
+dskapp:	pushj p,sizefi		;find end of file
+	move w2,fillby(o1)	;go to end
+	move o2,o1		;retint will set O1
+	call retint
+	exch o1,o2		;file to O1, position to O2
+	jrst setpos		;now setpos to the position
+
+;These are common initializations that must not be done until
+;we know the open succeeded
+
+;Find the size of the file, and set up CH%LBY
+sizefi:	hrrz nil1,ch%jfn(o1)
+	move w2,[2,,.fbbyv]
+	movei w3,w2		;put w2 _ byte size, w3 _ bytes in file
+	gtfdb			;get from fdb
+	 erjmp [err /Can't find size of file/]
+	ldb w4,[.bp 77_24.,ch%bpt(o1)]	;w4 _ our byte size
+	ldb w2,[.bp 77_24.,w2]	;w2 _ file's byte size
+	cain w2,0		;[2] if zero
+	movei w2,^D36		;[2] use 36 to prevent divide by 0
+	camn w2,w4
+	jrst sambsz		;if same, use exact calculation
+;[44] new algorithm that gets exact sizes if at all possible
+;different byte sizes.  First we figure the number of completely filled
+;words.  Then if not an even number of words, we handle the last,
+;partially filled word separately.  The object is to avoid rounding up
+;if possible.
+	movei o2,^D36
+	idiv o2,w2		;o2 - file bytes/wd
+	move o3,w3		;o3 - number of full words, o4 - extra fil byt
+	idiv o3,o2
+	imul o4,w2		;o4 - extra bits in last word
+	movei o5,^D36		;o5 - our bytes per word
+	idiv o5,w4
+	imul o5,w3		;o5 - our bytes in full words
+	move o6,o5		;o6 - our bytes in full words
+	idiv o4,w4		;o4 - extra bytes of our size in last wd
+				;o5 - extra bits beyond those bytes
+	add o6,o4		;o6 - our bytes due to full words and extra
+				;    bytes in last word
+	skiple o5		;any bits not yet counted?
+	addi o6,1		;yes - say one more byte
+	move c,o6		;c - final result - bytes in file
+	setzb o2,o3		;make these things legal
+	setzb o4,o5
+	setz o6,
+;[44] end of new algorithm
+sambsz:	movem w3,ch%lby(o1)
+	ret
+
+;alcbuf - allocation a page as a buffer - used elsewhere, too
+;  a - number of pages to allocate
+alcbuf:	hlrz t,filbuf(b)	;any buffer already?
+	jumpe t,alcbfn		;no, get a new one
+	camn t,a		;yes, right size?
+	popj p,			;yes, nothing to do
+	push p,a
+	move a,filbuf(b)	;no, throw it away
+	pushj p,relpg.
+	pop p,a
+alcbfn:	pushj p,getpg.		;get a new buffer
+	movem a,filbuf(b)	;store size,,addr
+	popj p,
+
+;pmap I/O - device-dependent routines
+
+;break - force out the buffer - this is close for read-only
+dskbrk:	skipge ch%pag(o1)	;anything there?
+	ret			;no - nothing to do
+	seto nil1,		;clear the pages
+	move w2,ch%buf(o1)	;this core address
+	lsh w2,-9.		;convert to page
+	hrli w2,400000		;in this process
+	move w3,[pm%cnt\winpgs]	;this many
+	pmap
+	 chkquo
+	 erjmp ioer
+	setz nil1,
+	ret
+
+;close for read/write modes
+dskclo:	call dskbrk		;force the last buffer
+	hrli nil1,400000!.fbbyv	;byte size, suppress updating disk copy
+	hrr nil1,ch%jfn(o1)
+	move w3,ch%bpt(o1)
+	hrlzi w2,007700		;mask
+	chfdb
+	 erjmp .+1		;if not open for output, ignore
+	hrli nil1,.fbsiz	;no. of bytes
+	hrr nil1,ch%jfn(o1)
+	move w3,ch%lby(o1)
+	seto w2,		;all bits
+	chfdb
+	 erjmp .+1
+	setz nil1,
+	ret
+
+	subttl pmap I/O - random access
+
+;setpos - file is O2, position is W2
+;skips if works, error is non-skip
+
+;dskmov - internal routine to move to new place
+dskmov:	caige w2,0		;if less than zero
+	move w2,ch%lby(o2)	;use end of file
+	push p,w2		;save desired byte in W4
+	idiv w2,ch%pgs(o2)	;w2 _ pages, w3 _ bytes off in page
+	sub w2,ch%pag(o2)	;w2 _ pages from start of buffer
+	cail w2,0		;is it in the window
+	cail w2,winpgs
+	jrst dskmv1		;no - need a new page
+dskmv2:	pop p,ch%cby(o2)	;we are now at requested place
+  ;compute byte count
+	move w2,ch%pag(o2)	;compute bytes left in buffer - bytes to start
+	imul w2,ch%pgs(o2)
+	sub w2,ch%cby(o2)	;- (current - start of window)
+	movn w4,w2		;for later: w4 = current - start of window
+	add w2,ch%bfs(o2)	;bytes left in window
+	movem w2,ch%bct(o2)
+  ;compute byte pointer - this code is because ADJBP doesn't work for 2-word
+	move w3,ch%bpt(o2)	;get the byte size from the current pointer
+	tlz w3,770040		;00nn00,,0
+	tlo w3,440000		;44nn00,,0
+	adjbp w4,w3		;w4 - one-word bpt from zero
+	tlo w4,000040		;LH is now LH of 2-word
+	hllm w4,ch%bpt(o2)
+	hrrz w4,w4		;address portion only
+	add w4,ch%buf(o2)	;add to start of buffer
+	movem w4,ch%bpt+1(o2)	;this is second word of 2-word pointer
+	aos (p)			;good (skip) return
+	ret
+
+dskmv1:	move w3,(p)		;get back target byte
+	idiv w3,ch%pgs(o2)	;w3 _ pages
+	call getfpg		;get file page
+	 jrst .+1		;error
+	jrst dskmv2		;it worked
+	adjsp p,-1		;fail return
+	ret
+
+dskcpo:	move w2,filcby(o1)
+	ret
+
+;error handling
+
+;chkquo - special thing designed to be used with ERCAL after a
+;jsys that may write to disk.  If quota is exceed, gives a
+;message that looks just like the EXEC's, and retries the jsys
+;if continued.
+quochk:	push p,nil1
+	push p,w2
+	movei nil1,400000
+	geter
+	tlz w2,777777		;b _ error code
+	caie w2,iox11		;is it quota problem?
+	cain w2,pmapx6
+	jrst isquot		;yes
+;not a quota problem, do the next instruction, including erjmp/cal
+;simulation.
+	move nil1,-2(p)		;ret addr
+	hlrz w2,(nil1)		;next inst
+	cain w2,(erjmp)		;is erjmp?
+	jrst dojmp
+	cain w2,(ercal)		;is ercal?
+	jrst docal
+retba:	pop p,w2		;no, normal return
+	pop p,nil1
+	ret
+
+;here are the erjmp/cal simulations
+dojmp:	hrrz w2,(nil1)		;address to go to
+	hrrm w2,-2(p)		;make us return there
+	jrst retba
+
+docal:	hrrz nil1,(nil1)	;address to call
+	hll nil1,(p)		;left half should be callers section
+	pop p,w2
+	exch nil1,(p)
+	adjsp p,-1		;we now have goto addr 1(p)
+	aos (p)			;return after the next ercal
+	jrst @1(p)		;this is pjrst
+
+;here if it is a quota problem
+; print a message, and then prepare to retry the instruction
+isquot:	hrroi nil1,[asciz / Quota exceeded or disk full
+[Find some space, then type CONTINUE]
+/]
+	esout
+; Finally we are ready to restore to the user's context and continue,
+; is user types CONTINUE
+	pop p,w2
+	pop p,nil1
+	haltf			;let him delete some files
+	ret
+
+;disk dispatch
+
+dskdsp:	codsec,,dskcpo		;curpos
+	codsec,,dskmov		;setpos
+	codsec,,dskclo		;close
+
+;for read-only
+dskrds:	codsec,,dskcpo		;curpos
+	codsec,,dskmov		;setpos
+	codsec,,dskbrk		;close
+
+;here is what the dispatch routines must do:
+;	curpos - file in O1, return position in W2
+;	setpos - file in O2, position in W2 ; skips if it works
+;	close - file in O1
+
+;Here are the routines for normal files
+
+norcpo:	hrrz nil1,ch%jfn(o1)
+	rfptr
+	setz nil1,
+	ret
+
+norspo:	hrrz nil1,ch%jfn(o2)
+	sfptr
+	 erjmp .+2
+	aos (p)
+	setz nil1,
+	ret
+
+;And here is the dispatch for them
+
+nordsp:	codsec,,norcpo
+	codsec,,norspo
+	codsec,,cpopj
+  

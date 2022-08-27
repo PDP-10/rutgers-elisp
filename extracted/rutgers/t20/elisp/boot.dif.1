@@ -1,0 +1,331 @@
+***** CHANGE #1; page 1, line 1; page 1, line 1
+ ---------------------------------
+
+***** CHANGE #2; page 1, line 118; page 1, line 118
+	ldb w2,[.bp 16_30.,x] termin
+
+define skpnum (x)
+	tlnn x,200000 termin
+
+ ---------------------------------
+	ldb w2,[.bp 16_30.,x] termin
+
+define skpnum (x)
+	tlnn x,200000 termin
+
+;integer of any type
+define skpint (x)
+	camge x,[object ty%big,0] termin
+
+define skpnnt (x)
+	caml x,[object ty%big,0] termin
+
+
+***** CHANGE #3; page 4, line 86; page 4, line 86
+	camge ac,[object ty%lni,0] termin
+; -- not an inum
+define skpnin (ac)
+	caml ac,[object ty%lni,0] termin
+
+ ---------------------------------
+	camge ac,[object ty%lni,0] termin
+; -- not an inum
+define skpnin (ac)
+	caml ac,[object ty%lni,0] termin
+
+
+
+
+***** CHANGE #4; page 15, line 129; page 15, line 129
+	jrst retflo		;return the value
+
+
+
+;;TY%FLO
+;Lisp object in O1.  Returns real value in W2/W3
+ ---------------------------------
+	jrst retflo		;return the value
+
+
+
+;;TY%FLO
+;Lisp object in O1.  Returns real value in W2/W3.
+
+***** CHANGE #5; page 15, line 135; page 15, line 135
+getrea:	skpnum o1
+	 jrst notnum
+	xtype o1
+	xct gtrtab-ty%xfl(w2)
+	ret			;already real, done
+;;TYPES
+ ---------------------------------
+getrea:	skpnum o1
+	 jrst notnum
+	xtype o1
+	xct gtrtab-ty%xfl(w2)
+	ret			;already real, done
+
+;GETFLO - special version of GETREA for the arith package.
+;Skips or not to show whether value is double precision.  Note that
+;a d.p. value is always computed.  This is merely advice to the caller.
+;We consider that any conversion from integer or bignum to real is
+;to single precision.  Only if the original is double precision do
+;we indicate double precision.  The user can ask for double precision
+;if he wants it by calling DOUBLE.
+;  normal - single precision
+;  skip - double precision
+
+;;TY%FLO
+;Lisp object in O1.  Returns real value in W2/W3.
+getflo:	skpnum o1
+	 jrst notnum
+	xtype o1
+	xct gtrtab-ty%xfl(w2)
+	aos (p)			;double - do the skip ret
+	ret			;already real, done
+
+;;TYPES
+;WARNING - this table is also used by DOUBLE, so be careful
+
+***** CHANGE #6; page 15, line 192; page 15, line 171
+	move w2,[<62.+200>_27.] ;and exp in w2
+	dfad w2,0		;normalize by adding 0
+	dmovn w2,w2		;negate the whole thing
+	ret
+
+ ---------------------------------
+	move w2,[<62.+200>_27.] ;and exp in w2
+	dfad w2,0		;normalize by adding 0
+	dmovn w2,w2		;negate the whole thing
+	ret
+
+;;;;; Numerical coercion routines.
+
+;DOUBLE - force to long real
+double:	skpnum o1
+	 jrst notnum
+	push p,[codsec,,retflo]	;if the XCT JRST's, it will return to RETFLO
+	xtype o1
+	xct gtrtab-ty%xfl(w2)
+  ;here if it was already double
+	adjsp p,-1		;forget the retflo, already long
+	ret			;already real, done
+
+;FLONUM - force to short real
+flonum:	call getrea		;get real into W2/W3
+retif:	fmpr w2,[201400,,4]	;round it
+	makifl w2		;make number into an iflon
+	move o1,w2		;and return it
+	ret
+
+;FIX - force to integer the easy way ;;WORK
+fixf:	skpnnt o1		;if already an integer
+	ret			;nothing to do
+	call getrea		;get real into W2/W3
+;we can handle this the easy way if what is in W2 is precise.  If
+;any significant digits are in w3, then we have to do it the hard
+;way.  the magic number below is 777,,777777.
+	camg w2,[134217727.0]
+	camge w2,[-134217727.0]
+	jrst truncb		;use bignum code
+	jumpl w2,truncn		;negative is wrong
+	fix o1,w2
+	maknum o1		;always an INUM
+	ret
+
+;the spec calls for FLOOR.  FIX produces TRUNC.  Oh, well...
+truncn:	fad w2,[134217727.0]	;make it positive so FIX will work
+		;note that this is a non-rounding add, for obvious
+		;reasons.  We would need one more digit of precision
+		;for FADR to work.
+	fix o1,w2
+	sub o1,[134217727.]	;now get back to right range
+	maknum o1
+	ret
+
+truncb:	ldb w4,[.bp <777000,,0>,w2] ;get exponent field
+	tlz w2,377000		;now clear the exponent (but not sign)
+	tlne w2,400000		;if neg
+	tlo w2,777000		;propagate sign
+	trne w4,400		;if neg
+	trc w4,777		;have to complement exponent
+	subi w4,200+62.		;-200 to get actual exp, 62 to shift beyond .
+	maknum w4		;make arg for lsh
+	move o2,w4
+	dmovem w2,work+1	;put the actual number in an ersatz bignum
+	move o1,[object ty%spc,2]
+	movem o1,work
+	move o1,[object ty%cbg,<codsec,,work>] ;pointer to bignum
+	jrst lshf
+
+;ROUND - force to integer ;;WORK
+round:	skpnnt o1		;if already an integer
+	ret			;nothing to do
+	call getrea		;get real into W2/W3
+;we can handle this the easy way if what is in W2 is precise.  If
+;any significant digits are in w3, then we have to do it the hard
+;way.  the magic number below is 377,,777777.  This is half the
+;one above because we need one bit after the decimal point for the
+;rounding to work.
+	camg w2,[67108863.0]
+	camge w2,[-67108863.0]
+	jrst roundb		;use bignum code
+	fixr o1,w2
+	maknum o1		;always an INUM
+	ret
+
+roundb:	dfad w2,[0.5 ? 0]	;do the rounding
+	ldb w4,[.bp <777000,,0>,w2] ;get exponent field
+	tlz w2,377000		;now clear the exponent (but not sign)
+	tlne w2,400000		;if neg
+	tlo w2,777000		;propagate sign
+	trne w4,400		;if neg
+	trc w4,777		;have to complement exponent
+	subi w4,200+62.		;-200 to get actual exp, 62 to shift beyond .
+	maknum w4		;make arg for lsh
+	move o2,w4
+	dmovem w2,work+1	;put the actual number in an ersatz bignum
+	move o1,[object ty%spc,2]
+	movem o1,work
+	move o1,[object ty%cbg,<codsec,,work>] ;pointer to bignum
+	jrst lshf
+
+***** CHANGE #7; page 15, line 1868; page 15, line 1757
+	setz nil1,
+	adjsp p,-3
+	ret
+
+;lsh
+ ---------------------------------
+	setz nil1,
+	adjsp p,-3
+	ret
+
+;lsh
+;;WORK - warning: TRUNC replies on the fact that WORK is not used when a
+;bignum is passed.
+
+***** CHANGE #8; page 15, line 2274; page 15, line 2161
+	add w4,o1		; --with the significant sign bit
+	skipl -1(w4)		;is it negative
+	 ret			; no, return it
+	jrst exnegb		;yes, negate it
+
+ ---------------------------------
+	add w4,o1		; --with the significant sign bit
+	skipl -1(w4)		;is it negative
+	 ret			; no, return it
+	jrst exnegb		;yes, negate it
+
+repeat 0,[  ;we are now using a version elsewhere, completely
+	;rewritten
+
+***** CHANGE #9; page 15, line 2312; page 15, line 2197
+	maknum o1
+	ret
+
+fixrat:	dmove o1,(o1)		;divide numerator by denominator (!)
+	jrst quot
+ ---------------------------------
+	maknum o1
+	ret
+
+fixrat:	dmove o1,(o1)		;divide numerator by denominator (!)
+	jrst quot
+] ;repeat 0
+
+***** CHANGE #10; page 16, line 118; page 16, line 118
+evretn:	move o1,nil		;no
+	adjsp p,-2
+	adjsp sp,-4
+	ret
+
+ ---------------------------------
+evretn:	move o1,nil		;no
+	adjsp p,-2
+	adjsp sp,-4
+	ret
+
+;MEMBERT - like member, but uses EQUALT instead of EQUAL
+
+***** CHANGE #11; page 18, line 685; page 18, line 685
+	sosle -7(p)		;any more?
+	jrst prrd1		;yes - do them
+	pop p,w4		;get back real char
+	ret
+	
+prrf4:	adjsp p,-6		;kill saved junk
+ ---------------------------------
+	sosle -7(p)		;any more?
+	jrst prrd1		;yes - do them
+	pop p,w4		;get back real char
+	ret
+	
+prrf4:	move o1,[char "d"]		;need decimal pt?
+	move w4,numdig
+	cain w4,18.			;long real?
+	call tyo			;yes - print D
+	adjsp p,-6		;kill saved junk
+
+***** CHANGE #12; page 30, line 614; page 30, line 614
+declat DISPATCHADDRESS
+declsu DDT,calddt,0
+declsu DDTIN,ddtin,1
+starsu DIF,diff,2
+declsu DIVIDE,divid,2
+declat DOUBLE
+ ---------------------------------
+declat DISPATCHADDRESS
+declsu DDT,calddt,0
+declsu DDTIN,ddtin,1
+starsu DIF,diff,2
+declsu DIVIDE,divid,2
+declsu DOUBLE,double,1
+
+***** CHANGE #13; page 30, line 652; page 30, line 652
+declsu FIX,fixf,1
+declat FIXFN
+declat FIXNUM
+declsu FLATSIZE,flats,1
+declss FLATSIZEC,fltsc,flatsc,1
+declat FLONUM
+ ---------------------------------
+declsu FIX,fixf,1
+declat FIXFN
+declat FIXNUM
+declsu FLATSIZE,flats,1
+declss FLATSIZEC,fltsc,flatsc,1
+declsu FLONUM,flonum,1
+
+***** CHANGE #14; page 30, line 724; page 30, line 724
+declfs MAPC,mapc
+declfs MAPCAR,mapcar
+declfs MAPCAN,mapcan
+declfs MAPCON,mapcon
+declfs MAPLIST,maplis
+declsu METER,umeter,1
+declsu MEMBEQL,memeql,2
+ ---------------------------------
+declfs MAPC,mapc
+declfs MAPCAR,mapcar
+declfs MAPCAN,mapcan
+declfs MAPCON,mapcon
+declfs MAPLIST,maplis
+declsu MEMBERT,memeql,2
+declsu METER,umeter,1
+
+***** CHANGE #15; page 30, line 796; page 30, line 796
+declsu RENAMEF,rename,3
+declsu REREADCH,setrrd,1
+declsy RETINT,<object ty%lpi,ret1nt>
+declsy RETREA,<object ty%lpi,retflo>
+declsu RETURN,return,1
+ ---------------------------------
+declsu RENAMEF,rename,3
+declsu REREADCH,setrrd,1
+declsy RETINT,<object ty%lpi,ret1nt>
+declsy RETREA,<object ty%lpi,retflo>
+declsu RETURN,return,1
+declsu ROUND,round,1
+
+  
